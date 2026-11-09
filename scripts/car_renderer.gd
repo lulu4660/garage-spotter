@@ -158,6 +158,7 @@ static func fit_scale(body: String, box: Vector2, lo := 1.0, hi := 3.2) -> float
 
 class _Renderer:
 	var locked := false
+	var lamps: Array[Vector3] = []
 	var faces: Array[Dictionary] = []
 	var e := EYE.normalized()
 	var light := LIGHT.normalized()
@@ -392,7 +393,10 @@ class _Renderer:
 		if nose >= 0:
 			var n0: Vector2 = nose_edge[0]
 			var n1: Vector2 = nose_edge[1]
+			lamps.clear()
 			for zr in [[1.6 + bev, gz - 0.6], [width - gz + 0.6, width - 1.6 - bev]]:
+				var mid := n0.lerp(n1, 0.45)
+				lamps.append(Vector3(mid.x, mid.y, (float(zr[0]) + float(zr[1])) * 0.5))
 				decal3(_on_edge(n0, n1, 0.05, 0.85, zr[0], zr[1]), Mat.LAMP, 1, nose)
 				decal3(_on_edge(n0, n1, 0.25, 0.65, zr[0] + 0.8, zr[1] - 0.8), Mat.LAMP, 3, nose, 0.6)
 			decal3(_on_edge(n0, n1, 0.30, 0.70, gz + 1.0, width - gz - 1.0), Mat.TRIM, 2, nose)
@@ -540,7 +544,11 @@ class _Renderer:
 		# Centre de l'empreinte au sol : c'est ce point qu'on pose au centre du plateau.
 		var an := project(Vector3(length * 0.5, 0.0, width * 0.5))
 		var front := project(Vector3(length, 0.0, 0.0))
-		return {"image": img, "exhaust": Vector2(ex.x, ex.y), "anchor": Vector2(an.x, an.y), "ground": front.y}
+		var lamp_px: Array[Vector2] = []
+		for lp in lamps:
+			var q := project(lp)
+			lamp_px.append(Vector2(q.x, q.y))
+		return {"image": img, "exhaust": Vector2(ex.x, ex.y), "anchor": Vector2(an.x, an.y), "ground": front.y, "lamps": lamp_px}
 
 	func _shade_for(nrm: Vector3) -> int:
 		var i := nrm.normalized().dot(light)

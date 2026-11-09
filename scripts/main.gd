@@ -60,6 +60,7 @@ func _ready() -> void:
 	var shot_popup := ""
 	var demo := false
 	var fresh := false
+	var shot_stage := -1
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--screenshot="):
 			shot_path = a.get_slice("=", 1)
@@ -69,12 +70,16 @@ func _ready() -> void:
 			demo = true
 		elif a == "--fresh":
 			fresh = true
+		elif a.begins_with("--stage="):
+			shot_stage = int(a.get_slice("=", 1))
 	if shot_path != "" or demo or fresh:
 		persist = false
 
 	var offline := {}
 	if demo:
 		state.setup_demo()
+		if shot_stage >= 0:
+			state.stage = shot_stage
 	elif persist:
 		var saved_at := state.load_game()
 		if saved_at >= 0.0:
@@ -404,6 +409,8 @@ func _on_state_changed() -> void:
 func _refresh_car() -> void:
 	var car := state.get_car(selected_uid)
 	if car.is_empty():
+		scene.stage = state.stage
+		scene.clear_car()
 		car_name.text = "GARAGE VIDE"
 		car_rarity.text = "Mets une voiture à neuf pour l'exposer"
 		car_slot_label.text = ""
@@ -1055,8 +1062,7 @@ func _take_screenshot(path: String, popup: String) -> void:
 			_show_menu()
 	await get_tree().create_timer(0.8).timeout
 	await RenderingServer.frame_post_draw
-	# Le jeu tourne en 320 px de large : la capture est agrandie x3, pixels nets.
+	# Capture à la résolution de la fenêtre (lancer avec --resolution 960x1704 pour du x3).
 	var img := get_viewport().get_texture().get_image()
-	img.resize(img.get_width() * 3, img.get_height() * 3, Image.INTERPOLATE_NEAREST)
 	img.save_png(path)
 	get_tree().quit()
