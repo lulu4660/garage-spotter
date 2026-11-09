@@ -1,0 +1,18 @@
+# Godot 4
+.godot/
+/android/
+*.translation
+export.cfg
+export_credentials.cfg
+# Exports
+build/
+*.apk
+*.aab
+*.ipa
+# Secrets
+.env
+.env.*
+supabase/.temp/
+# OS
+.DS_Store
+Thumbs.db
