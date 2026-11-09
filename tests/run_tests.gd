@@ -4,6 +4,7 @@ extends SceneTree
 
 const Economy = preload("res://scripts/economy.gd")
 const GameState = preload("res://scripts/game_state.gd")
+const Progression = preload("res://scripts/progression.gd")
 
 var _failures := 0
 var _count := 0
@@ -18,6 +19,10 @@ func _init() -> void:
 	_test_format()
 	_test_state_flow()
 	_test_save_roundtrip()
+	_test_prestige_and_skills()
+	_test_staff()
+	_test_missions_and_achievements()
+	_test_collections()
 	print("%d vérifications, %d échec(s)" % [_count, _failures])
 	quit(1 if _failures > 0 else 0)
 
@@ -183,3 +188,119 @@ func _test_save_roundtrip() -> void:
 		car.erase("restored")
 	var migrated := GameState.new()
 	check(migrated.from_dict(old) >= 0.0 and migrated.locked_count() == 0, "ancienne sauvegarde : toutes les voitures restent utilisables")
+
+
+func _ready_state() -> GameState:
+	var s := GameState.new()
+	s.new_game()
+	s.restore(s.cars[0]["uid"])
+	s.tutorial_step = GameState.TUTORIAL_DONE
+	s.daily_refresh("2026-11-10")
+	return s
+
+
+func _test_prestige_and_skills() -> void:
+	check(Progression.prestige_points(Progression.PRESTIGE_DIVISOR) == 1 and Progression.prestige_points(Progression.PRESTIGE_DIVISOR * 100.0) == 10, "points de prestige en racine carrée")
+	check(Progression.prestige_points(0.0) == 0, "pas de point sans gains")
+	for sk in Progression.SKILLS:
+		var pre := Progression.prerequisite(String(sk["id"]))
+		check(pre == "" or Progression.skill(pre)["branch"] == sk["branch"], "prérequis dans la même branche : %s" % sk["id"])
+	var s := _ready_state()
+	var uid: int = s.cars[0]["uid"]
+	s.coins = 1e6
+	s.buy_part(uid, 0, 30)
+	s.buy_stage()
+	check(s.prestige() == 0, "pas de prestige sans assez de gains")
+	s.collect(Progression.earnings_for_points(4))
+	var models := s.unique_models()
+	var tokens := s.restore_tokens
+	var gain := s.prestige_gain()
+	check(gain >= 4 and s.prestige() == gain, "prestige : points selon les gains de la partie")
+	check(s.reputation == gain and s.rep_total == gain and s.prestige_count == 1, "réputation créditée")
+	check(s.coins == 0.0 and s.stage == 0 and int(s.cars[0]["levels"][0]) == 0 and s.run_earnings == 0.0, "prestige : pièces, niveaux, étape remis à zéro")
+	check(s.unique_models() == models and s.restore_tokens == tokens and s.is_restored(uid), "prestige : collection et mises à neuf gardées")
+	check(near(s.income_multiplier(), (1.0 + 0.01 * models) * (1.0 + 0.01 * gain)), "+1 % de revenus par point gagné")
+	check(not s.can_buy_skill("r2"), "prérequis : r2 demande r1")
+	var inc := s.base_income()
+	check(s.buy_skill("r1") and near(s.base_income(), inc * 1.10), "Huile de coude : +10 % de revenus")
+	check(s.reputation == gain - 1 and not s.buy_skill("r1"), "compétence achetée une seule fois")
+	var price := s.part_price(0, 5)
+	s.reputation += 10
+	check(s.buy_skill("a1") and near(s.part_price(0, 5), price * 0.9), "Clé à choc : améliorations -10 %")
+	var off := s.offline_result(0.0, 4.0 * 3600.0)
+	s.buy_skill("r2")
+	check(float(s.offline_result(0.0, 4.0 * 3600.0)["gain"]) > float(off["gain"]), "Clients fidèles : hors ligne plus long à 100 %")
+	s.reputation += 50
+	for id in ["g1", "g2", "g3", "g4", "g5"]:
+		s.buy_skill(id)
+	s.collect(Progression.earnings_for_points(2))
+	s.prestige()
+	check(s.stage == 1 and s.slots == 4 and near(s.coins, 50000.0), "départ : Atelier, +1 place, 50 K pièces")
+	var copy := GameState.new()
+	copy.from_dict(JSON.parse_string(JSON.stringify(s.to_dict(5.0))))
+	check(copy.has_skill("g5") and copy.rep_total == s.rep_total and copy.prestige_count == 2, "arbre et réputation sauvegardés")
+
+
+func _test_staff() -> void:
+	var s := _ready_state()
+	check(s.staff_slots() == 0, "pas de mécano au Box")
+	s.coins = 1e6
+	s.buy_stage()
+	check(s.staff_slots() == 1 and s.staff.size() == 1, "un mécano avec l'Atelier")
+	var levels := 0
+	for l in s.cars[0]["levels"]:
+		levels += int(l)
+	s.tick(GameState.STAFF_INTERVAL + 0.1)
+	var after := 0
+	for l in s.cars[0]["levels"]:
+		after += int(l)
+	check(after == levels + 1, "le mécano achète une amélioration")
+	s.coins = 1.0
+	s.tick(GameState.STAFF_INTERVAL + 0.1)
+	var after2 := 0
+	for l in s.cars[0]["levels"]:
+		after2 += int(l)
+	check(after2 == after, "le mécano ne dépense pas plus que son budget")
+
+
+func _test_missions_and_achievements() -> void:
+	var s := _ready_state()
+	check(s.missions.size() == 3, "trois missions par jour")
+	var ids := {}
+	for m in s.missions:
+		ids[m["id"]] = true
+	check(ids.size() == 3, "missions différentes")
+	var same := Progression.daily_missions("2026-11-10")
+	check(same[0]["id"] == s.missions[0]["id"], "les missions dépendent seulement de la date")
+	for i in s.missions.size():
+		var m: Dictionary = s.missions[i]
+		check(not s.claim_mission(i), "mission pas finie : rien à réclamer")
+		s.today[m["stat"]] = int(m["goal"])
+		var tok := s.restore_tokens
+		var coins := s.coins
+		check(s.claim_mission(i) and (s.restore_tokens > tok or s.coins > coins), "mission finie : récompense")
+		check(not s.claim_mission(i), "une mission ne se réclame qu'une fois")
+	s.daily_refresh("2026-11-11")
+	check(s.today.is_empty() and not s.missions[0]["claimed"], "nouveau jour : nouvelles missions")
+	check(s.achievement_done(Progression.ACHIEVEMENTS[0]) and s.claim_achievement("first_restore"), "succès « Comme neuve » après la 1re mise à neuf")
+	check(not s.claim_achievement("first_restore"), "un succès ne se réclame qu'une fois")
+	check(not s.claim_achievement("spots_100"), "succès pas atteint")
+	for i in 3:
+		s.tap()
+	check(s.stat("taps") == 3 and int(s.today.get("taps", 0)) == 3, "les touchers sont comptés")
+
+
+func _test_collections() -> void:
+	var s := _ready_state()
+	var jdm: Dictionary = Progression.SERIES[2]
+	check(s.series_count(jdm) == 0, "aucune voiture JDM au départ")
+	var base := s.income_multiplier()
+	for id in ["yariz", "gtx_r35"]:
+		var uid := s.add_car(id)
+		s.restore(uid)
+	check(s.series_count(jdm) == 2 and s.series_tier(jdm) == 1, "2 JDM : palier 1")
+	check(near(s.income_multiplier(), (1.0 + 0.01 * s.unique_models()) * (1.0 + 0.05)), "palier 1 : +5 % de revenus")
+	var locked := s.add_car("mx6")
+	check(s.series_count(jdm) == 2, "une voiture grise ne compte pas")
+	s.restore(locked)
+	check(s.series_tier(jdm) == 2 and s.income_multiplier() > base, "3 JDM : palier 2")
