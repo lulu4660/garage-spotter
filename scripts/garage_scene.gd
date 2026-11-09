@@ -44,6 +44,7 @@ var _neons: Array[Rect2] = []
 var _car_rect: TextureRect
 var _reflect: TextureRect
 var _under: Control
+var _mirror: ColorRect
 var _fog: Control
 var _lights: Control
 var _post: ColorRect
@@ -58,6 +59,15 @@ var _rain: Array[Dictionary] = []
 var _fog_blobs: Array[Dictionary] = []
 var _rng := RandomNumberGenerator.new()
 
+# Éclairage dynamique (PointLight2D) : n'éclaire que la voiture et le décor
+# (masque 2), jamais l'interface.
+const LIGHT_MASK := 2
+var _neon_lights: Array[PointLight2D] = []
+var _city_light: PointLight2D
+var _plat_light: PointLight2D
+var _sweep_light: PointLight2D
+var _beacon_light: PointLight2D
+
 
 func _ready() -> void:
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
@@ -68,6 +78,8 @@ func _ready() -> void:
 	_under = Control.new()
 	_under.material = Fx.additive()
 	_under.draw.connect(_draw_under)
+	_mirror = ColorRect.new()
+	_mirror.material = Fx.material("mirror")
 	_reflect = TextureRect.new()
 	_reflect.flip_v = true
 	_reflect.material = Fx.material("reflection")
@@ -78,19 +90,35 @@ func _ready() -> void:
 	_lights = Control.new()
 	_lights.material = Fx.additive()
 	_lights.draw.connect(_draw_lights)
-	for c: Control in [_under, _reflect, _car_rect, _fog, _lights]:
+	for c: Control in [_under, _mirror, _reflect, _car_rect, _fog, _lights]:
 		c.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		c.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 		add_child(c)
-	for c: Control in [_under, _fog, _lights]:
+	_mirror.visible = show_backdrop
+	for c: Control in [_under, _mirror, _fog, _lights]:
 		c.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	if show_backdrop:
+		# Nouvelle capture de l'écran : le reflet du sol en a fait une avant la
+		# voiture, le post-traitement doit voir l'image complète.
+		var copy := BackBufferCopy.new()
+		copy.copy_mode = BackBufferCopy.COPY_MODE_VIEWPORT
+		add_child(copy)
 		_post = ColorRect.new()
 		_post.material = Fx.material("post")
 		_post.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		_post.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 		add_child(_post)
 
+	light_mask = LIGHT_MASK
+	_car_rect.light_mask = LIGHT_MASK
+	# Un peu d'ombre ambiante sur la voiture : ce sont les lumières qui la révèlent.
+	_car_rect.self_modulate = Color(0.78, 0.76, 0.8)
+	for i in 2:
+		_neon_lights.append(_make_light(NEON, 0.95, 60.0))
+	_city_light = _make_light(Color(0.95, 0.4, 0.55), 0.55, 30.0)
+	_plat_light = _make_light(Color.WHITE, 0.22, 24.0)
+	_sweep_light = _make_light(Color(1.0, 0.93, 0.8), 0.0, 22.0)
+	_beacon_light = _make_light(Color(1.0, 0.55, 0.1), 0.0, 25.0)
 	for i in 40:
 		_dust.append({"p": Vector2(_rng.randf(), _rng.randf()), "v": Vector2(_rng.randf_range(-3, 3), _rng.randf_range(-4, -1)), "s": _rng.randf_range(0.8, 2.2), "ph": _rng.randf() * TAU})
 	for i in 70:
@@ -99,6 +127,18 @@ func _ready() -> void:
 		_fog_blobs.append({"x": _rng.randf(), "y": _rng.randf_range(-0.15, 0.25), "s": _rng.randf_range(0.5, 0.9), "v": _rng.randf_range(0.004, 0.012) * (1 if i % 2 == 0 else -1)})
 	resized.connect(_layout)
 	_layout()
+
+
+func _make_light(color: Color, energy: float, height: float) -> PointLight2D:
+	var l := PointLight2D.new()
+	l.texture = Fx.soft_dot()
+	l.color = color
+	l.energy = energy
+	l.height = height
+	l.range_item_cull_mask = LIGHT_MASK
+	l.blend_mode = Light2D.BLEND_MODE_ADD
+	add_child(l)
+	return l
 
 
 func configure(color: Color, body: String, rarity_index: int, tier_index: int, stage_index: int) -> void:
@@ -155,13 +195,71 @@ func _layout() -> void:
 		var tex: ImageTexture = _car["texture"]
 		var tsize := Vector2(tex.get_size())
 		_car_pos = (_plat_c - Vector2(_car["anchor"])).floor()
-		_car_rect.texture = tex
+		var ct := CanvasTexture.new()
+		ct.diffuse_texture = tex
+		ct.normal_texture = _car["normal"]
+		ct.specular_texture = _car["specular"]
+		ct.specular_color = Color(1.0, 0.95, 0.9)
+		ct.specular_shininess = 0.75
+		ct.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		_car_rect.texture = ct
 		_car_rect.size = tsize
 		_car_rect.position = _car_pos
 		_reflect.texture = tex
 		_reflect.size = tsize
 		_reflect.position = Vector2(_car_pos.x, _car_pos.y + float(_car["ground"]) * 2.0 - tsize.y).floor()
+	_place_lights()
 	queue_redraw()
+
+
+## Position et taille des lumières selon la mise en page.
+func _place_lights() -> void:
+	var w := size.x
+	for i in _neon_lights.size():
+		var l := _neon_lights[i]
+		l.visible = show_backdrop and i < _neons.size()
+		if l.visible:
+			l.position = _neons[i].get_center() + Vector2(0, 6)
+			l.texture_scale = w * 0.9 / 64.0
+	_city_light.visible = show_backdrop and not _openings.is_empty()
+	if _city_light.visible:
+		var o := _openings[0]
+		_city_light.position = Vector2(o.get_center().x, o.end.y)
+		_city_light.texture_scale = o.size.x * 1.4 / 64.0
+	_plat_light.color = PixelUI.RARITY[rarity]
+	_plat_light.position = _plat_c + Vector2(_plat_r.x * 0.3, -_plat_r.y * 0.5)
+	_plat_light.texture_scale = _plat_r.x * 2.4 / 64.0
+	_sweep_light.texture_scale = w * 0.5 / 64.0
+	_beacon_light.texture_scale = w * 0.7 / 64.0
+
+
+## Lumières qui bougent : phares d'une voiture qui passe dans la rue (toutes les
+## 14 s) et gyrophare orange d'une dépanneuse de temps en temps.
+func _animate_lights() -> void:
+	if not show_backdrop or _openings.is_empty():
+		_sweep_light.energy = 0.0
+		_beacon_light.energy = 0.0
+		return
+	var o := _openings[0]
+	var w := size.x
+	var t := fmod(_time, 14.0)
+	if t < 3.0:
+		var k := t / 3.0
+		_sweep_light.position = Vector2(lerpf(-w * 0.3, w * 1.3, k), o.end.y - 4.0)
+		_sweep_light.energy = sin(k * PI) * 1.3
+	else:
+		_sweep_light.energy = 0.0
+	var b := fmod(_time + 9.0, 37.0)
+	if b < 5.0:
+		_beacon_light.position = Vector2(o.end.x - 10.0, o.end.y - 6.0)
+		_beacon_light.energy = maxf(0.0, sin(_time * 9.0)) * 1.1 * sin(b / 5.0 * PI)
+	else:
+		_beacon_light.energy = 0.0
+	for i in _neon_lights.size():
+		if i < _neons.size():
+			var n := _neons[i]
+			var flick := 0.45 if fmod(_time + n.position.x * 0.01, 5.3) < 0.06 else 1.0
+			_neon_lights[i].energy = 0.95 * flick
 
 
 ## Ouvertures sur la rue (pluie) et néons, selon l'étape.
@@ -217,6 +315,10 @@ func _process(delta: float) -> void:
 	_fog.queue_redraw()
 	_lights.queue_redraw()
 	_under.queue_redraw()
+	_animate_lights()
+	if _mirror.visible:
+		var vp := get_viewport_rect().size
+		_mirror.material.set_shader_parameter("floor_uv", (global_position.y + _floor_y) / maxf(vp.y, 1.0))
 
 
 # --- Décor (pixels) -----------------------------------------------------

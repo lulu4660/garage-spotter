@@ -145,6 +145,8 @@ static func render(body: String, color: Color, tier: int, scale: float, locked :
 	r.locked = locked
 	var out := r.run(BODIES.get(body, BODIES["compacte"]), color, tier, scale)
 	out["texture"] = ImageTexture.create_from_image(out["image"])
+	out["normal"] = ImageTexture.create_from_image(out["normal_image"])
+	out["specular"] = ImageTexture.create_from_image(out["spec_image"])
 	_cache[key] = out
 	return out
 
@@ -540,6 +542,7 @@ class _Renderer:
 			_fill(proj, i, parent, f["mat"], shade, 0.0)
 
 		var img := _compose(color, tier)
+		var maps := _light_maps()
 		var ex := project(info["exhaust"])
 		# Centre de l'empreinte au sol : c'est ce point qu'on pose au centre du plateau.
 		var an := project(Vector3(length * 0.5, 0.0, width * 0.5))
@@ -548,7 +551,7 @@ class _Renderer:
 		for lp in lamps:
 			var q := project(lp)
 			lamp_px.append(Vector2(q.x, q.y))
-		return {"image": img, "exhaust": Vector2(ex.x, ex.y), "anchor": Vector2(an.x, an.y), "ground": front.y, "lamps": lamp_px}
+		return {"image": img, "normal_image": maps[0], "spec_image": maps[1], "exhaust": Vector2(ex.x, ex.y), "anchor": Vector2(an.x, an.y), "ground": front.y, "lamps": lamp_px}
 
 	func _shade_for(nrm: Vector3) -> int:
 		var i := nrm.normalized().dot(light)
@@ -625,6 +628,34 @@ class _Renderer:
 							mbuf[idx] = mat
 							sbuf[idx] = shade
 				k2 += 2
+
+	## Cartes pour l'éclairage dynamique : orientation de chaque pixel vue de la
+	## caméra (normal map, format Godot : x à droite, y vers le haut, z vers nous)
+	## et brillance par matière (vitres et peinture brillent, pneus mats).
+	func _light_maps() -> Array[Image]:
+		var nimg := Image.create(w, h, false, Image.FORMAT_RGBA8)
+		var simg := Image.create(w, h, false, Image.FORMAT_RGBA8)
+		nimg.fill(Color(0.5, 0.5, 1.0, 1.0))
+		simg.fill(Color(0, 0, 0, 1))
+		var shine := {Mat.BODY: 0.75, Mat.GLASS: 1.0, Mat.RIM: 0.9, Mat.LAMP: 0.4, Mat.TRIM: 0.25, Mat.TIRE: 0.05, Mat.CALIPER: 0.6}
+		var cache := {}
+		for y in h:
+			for x in w:
+				var idx := y * w + x
+				var m := mbuf[idx]
+				if not _is_car(m):
+					continue
+				var fid := fbuf[idx]
+				if fid < 0:
+					continue
+				if not cache.has(fid):
+					var n: Vector3 = faces[fid]["n"]
+					var sn := Vector3(n.dot(right), n.dot(up), n.dot(e)).normalized()
+					cache[fid] = Color(sn.x * 0.5 + 0.5, sn.y * 0.5 + 0.5, sn.z * 0.5 + 0.5, 1.0)
+				nimg.set_pixel(x, y, cache[fid])
+				var sp: float = shine.get(m, 0.3)
+				simg.set_pixel(x, y, Color(sp, sp, sp, 1.0))
+		return [nimg, simg]
 
 	func _is_car(m: int) -> bool:
 		return m != Mat.NONE and m != Mat.SHADOW

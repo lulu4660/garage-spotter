@@ -110,11 +110,40 @@ void fragment() {
 }
 """
 
+## Sol mouillé : reflet en miroir de ce qui est au-dessus de la ligne du sol
+## (néons, ville, murs), ondulé, de plus en plus flou et pâle en s'éloignant.
+const MIRROR := """
+shader_type canvas_item;
+uniform sampler2D screen_tex : hint_screen_texture, filter_linear;
+uniform float floor_uv = 0.6;
+uniform float strength = 0.6;
+uniform float reach = 0.3;
+
+void fragment() {
+	vec2 uv = SCREEN_UV;
+	float d = uv.y - floor_uv;
+	if (d <= 0.0) {
+		COLOR = vec4(0.0);
+	} else {
+		float ripple = sin(uv.y * 340.0 + TIME * 2.4) * 0.5 + sin(uv.x * 90.0 - TIME * 1.3) * 0.5;
+		vec2 ruv = vec2(uv.x + ripple * 0.0015 * (1.0 + d * 10.0), floor_uv - d * 0.9);
+		vec3 c = vec3(0.0);
+		float spread = 1.5 + d * 90.0;
+		for (int i = -3; i <= 3; i++) {
+			c += texture(screen_tex, ruv + vec2(0.0, float(i)) * SCREEN_PIXEL_SIZE * spread).rgb;
+		}
+		c /= 7.0;
+		float fade = (1.0 - smoothstep(0.0, reach, d)) * strength;
+		COLOR = vec4(c * vec3(1.0, 0.92, 0.95), fade);
+	}
+}
+"""
+
 static var _cache := {}
 
 
 static func material(code_name: String) -> ShaderMaterial:
-	var code: String = {"post": POST, "car": CAR, "reflection": REFLECTION, "depth": DEPTH}[code_name]
+	var code: String = {"post": POST, "car": CAR, "reflection": REFLECTION, "depth": DEPTH, "mirror": MIRROR}[code_name]
 	if not _cache.has(code_name):
 		var sh := Shader.new()
 		sh.code = code
