@@ -45,7 +45,7 @@ Mise à neuf : chaque voiture spottée arrive grise (silhouette de sa carrosseri
 
 ## Version web
 - `export_presets.cfg` : préréglage « Web » sans threads (Safari iPhone, hébergement simple). Export : `godot --headless --path . --export-release "Web" build/web/index.html`.
-- `.github/workflows/web.yml` : export à chaque mise à jour de `main` (archive dans Actions) et mise en ligne sur GitHub Pages si la variable de dépôt `PAGES_ENABLED` vaut `true`.
+- `.github/workflows/web.yml` : export à chaque mise à jour de `main` (archive dans Actions) et mise en ligne sur GitHub Pages (https://lulu4660.github.io/garage-spotter/).
 - `main.gd` élargit la zone de jeu pour remplir l'écran en gardant un agrandissement entier.
 
 ## Vérifier un changement

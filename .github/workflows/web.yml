@@ -1,10 +1,8 @@
 name: Version web
 
 # À chaque mise à jour de main : export web du jeu (sans threads, compatible
-# Safari iPhone et hébergement simple), téléchargeable dans l'onglet Actions.
-# Mise en ligne sur GitHub Pages seulement quand la variable de dépôt
-# PAGES_ENABLED vaut "true" (Settings > Secrets and variables > Actions > Variables),
-# une fois Pages activé avec la source « GitHub Actions ».
+# Safari iPhone et hébergement simple), téléchargeable dans l'onglet Actions,
+# puis mise en ligne sur GitHub Pages (Settings > Pages > Source : GitHub Actions).
 
 on:
   push:
@@ -57,14 +55,12 @@ jobs:
           name: garage-spotter-web
           path: build/web
       - name: Préparer GitHub Pages
-        if: vars.PAGES_ENABLED == 'true'
         uses: actions/upload-pages-artifact@v3
         with:
           path: build/web
 
   deploy:
     needs: export
-    if: vars.PAGES_ENABLED == 'true'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
