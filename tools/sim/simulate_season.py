@@ -56,29 +56,39 @@ def milestones_passed(level):
     return sum(1 for s in MILESTONES if level >= s)
 
 
-def next_milestone(level):
+def _next_milestone(level):
     for s in MILESTONES:
         if level < s:
             return s
     return -1
 
 
+# Tables précalculées (mêmes formules que economy.gd, juste plus rapides).
+POW = [COST_GROWTH ** i for i in range(MAX_LEVEL + 2)]
+TERM = [(1.0 + l) * 2.0 ** milestones_passed(l) for l in range(MAX_LEVEL + 1)]
+NEXT_MS = [_next_milestone(l) for l in range(MAX_LEVEL + 1)]
+
+
+def next_milestone(level):
+    return NEXT_MS[level]
+
+
 def part_cost(b, level):
-    return COST_FACTOR * b * COST_GROWTH ** level
+    return COST_FACTOR * b * POW[level]
 
 
 def cost_for_levels(b, level, count):
     if count <= 0:
         return 0.0
-    return part_cost(b, level) * (COST_GROWTH ** count - 1.0) / (COST_GROWTH - 1.0)
+    return COST_FACTOR * b * POW[level] * (POW[count] - 1.0) / (COST_GROWTH - 1.0)
 
 
 def part_term(level):
-    return (1.0 + level) * 2.0 ** milestones_passed(level)
+    return TERM[level]
 
 
 def car_income(b, levels):
-    return b * 0.1 * sum(part_term(l) for l in levels)
+    return b * 0.1 * sum(TERM[l] for l in levels)
 
 
 def slot_cost(n):
@@ -131,34 +141,49 @@ class Street:
 # spots(d) : spots par jour au jour d (0-indexé)
 # restore : "quota" (mise à neuf, 5/jour) ou "none" (ancien modèle : tout est utilisable)
 # ads : pubs regardées quand il n'y a plus de jeton et qu'une voiture grise attend
+def decline(d):
+    """Lassitude : le joueur spotte de moins en moins (×0,35 en 10 semaines)."""
+    return 0.35 ** (d / 70.0)
+
+
 PROFILES = {
-    "gratuit": dict(label="Gratuit (5 mises à neuf/j, sans pub)", spots=lambda d: 6, restore="quota", ads=False),
-    "pubs": dict(label="Pubs (5 + 5 pubs/j)", spots=lambda d: 6, restore="quota", ads=True),
-    "rural": dict(label="Rural (2 spots/j)", spots=lambda d: 2, restore="quota", ads=False),
-    "gros_spotteur": dict(label="Gros spotteur (14 spots/j)", spots=lambda d: 14, restore="quota", ads=False),
-    "gros_spotteur_pubs": dict(label="Gros spotteur + pubs", spots=lambda d: 14, restore="quota", ads=True),
-    "ancien": dict(label="Ancien modèle (sans mise à neuf)", spots=lambda d: 6, restore="none", ads=False),
-    "ancien_rural": dict(label="Ancien modèle, rural", spots=lambda d: 2, restore="none", ads=False),
+    "gratuit": dict(label="Gratuit", spots=lambda d: 7 * decline(d), restore="quota", ads=False),
+    "pubs": dict(label="Pubs 5/j", spots=lambda d: 7 * decline(d), restore="quota", ads=True),
+    "rural": dict(label="Rural", spots=lambda d: 2.0, restore="quota", ads=False),
+    "gros_spotteur": dict(label="Gros spotteur", spots=lambda d: 17 * decline(d), restore="quota", ads=False),
+    "gros_spotteur_pubs": dict(label="Gros spotteur + pubs", spots=lambda d: 17 * decline(d), restore="quota", ads=True),
+    "ancien": dict(label="Ancien modèle", spots=lambda d: 7 * decline(d), restore="none", ads=False),
+    "ancien_rural": dict(label="Ancien modèle, rural", spots=lambda d: 2.0, restore="none", ads=False),
+    "ancien_gros": dict(label="Ancien modèle, gros spotteur", spots=lambda d: 17 * decline(d), restore="none", ads=False),
 }
 
 
 class Car:
-    __slots__ = ("rarity", "model", "levels", "restored", "b")
+    __slots__ = ("rarity", "model", "levels", "restored", "b", "terms")
 
     def __init__(self, rarity, model, restored):
         self.rarity = rarity
         self.model = model
         self.b = BASE_INCOME[rarity]
-        self.levels = [0] * 10
         self.restored = restored
+        self.reset()
+
+    def reset(self):
+        self.levels = [0] * 10
+        self.terms = 10.0 * TERM[0]
+
+    def add_levels(self, p, n):
+        l = self.levels[p]
+        self.terms += TERM[l + n] - TERM[l]
+        self.levels[p] = l + n
 
     def income(self):
-        return car_income(self.b, self.levels)
+        return self.b * 0.1 * self.terms
 
 
 class Game:
     def __init__(self, profile, seed, free_per_day=5, ads_per_day=5, token_rule="max",
-                 gift_extra=0, gray_bonus=0.0):
+                 gift_extra=0, gray_bonus=0.0, welcome_days=0, welcome_quota=0, free_rarity=99):
         self.p = profile
         self.rng = random.Random(seed)
         self.street = Street(self.rng)
@@ -166,6 +191,10 @@ class Game:
         self.ads_per_day = ads_per_day
         self.token_rule = token_rule      # "max" (jeu actuel) ou "add" (cumul plafonné)
         self.gray_bonus = gray_bonus      # part du bonus collection accordée aux voitures grises
+        self.welcome_days = welcome_days  # semaine de bienvenue : quota relevé les premiers jours
+        self.welcome_quota = welcome_quota
+        self.free_rarity = free_rarity    # rareté à partir de laquelle la mise à neuf est offerte
+        self.day = 0
         self.coins = 0.0
         self.cars = []
         self.owned = set()
@@ -181,17 +210,21 @@ class Game:
             if len(self.exhibited) < self.slots:
                 self.exhibited.append(c)
         self.stats = dict(restores=0, ads=0, new=0, spots=0, buys_sessions=0, sessions=0,
-                          token_waste=0, spot_coins=0.0)
+                          spot_coins=0.0)
 
     # --- état ---
     def _add(self, rarity, model, restored):
         c = Car(rarity, model, restored)
         self.cars.append(c)
         self.owned.add((rarity, model))
+        if restored:
+            self.n_restored += 1
         return c
 
+    n_restored = 0
+
     def unique_restored(self):
-        return sum(1 for c in self.cars if c.restored)
+        return self.n_restored
 
     def mult(self):
         gray = len(self.cars) - self.unique_restored()
@@ -207,11 +240,16 @@ class Game:
         return STAGES[self.stage][0]
 
     # --- quotidien ---
-    def new_day(self):
+    def quota(self):
+        return self.welcome_quota if self.day < self.welcome_days else self.free_per_day
+
+    def new_day(self, day=0):
+        self.day = day
+        q = self.quota()
         if self.token_rule == "max":
-            self.tokens = max(self.tokens, self.free_per_day)
+            self.tokens = max(self.tokens, q)
         else:  # cumul : +quota, plafonné à 3 jours de quota
-            self.tokens = min(self.tokens + self.free_per_day, 3 * self.free_per_day)
+            self.tokens = min(self.tokens + q, 3 * q)
         self.ads_today = 0
 
     # --- spot et mise à neuf ---
@@ -223,7 +261,8 @@ class Game:
         self.stats["spots"] += 1
         if (rarity, model) not in self.owned:
             self.stats["new"] += 1
-            self._add(rarity, model, self.p["restore"] == "none")
+            free = self.p["restore"] == "none" or rarity >= self.free_rarity
+            self._add(rarity, model, free)
 
     def do_restores(self):
         if self.p["restore"] == "none":
@@ -238,6 +277,7 @@ class Game:
                 break
             self.tokens -= 1
             c.restored = True
+            self.n_restored += 1
             self.stats["restores"] += 1
 
     # --- exposition ---
@@ -246,18 +286,18 @@ class Game:
         levels = list(car.levels)
         parts = self.parts()
         spent = 0.0
-        for _ in range(400):
+        for _ in range(300):
             best = None
             for p in range(parts):
                 l = levels[p]
                 if l >= MAX_LEVEL:
                     continue
-                for n in (1, (next_milestone(l) - l) if next_milestone(l) > 0 else 1):
+                nm = NEXT_MS[l]
+                for n in ((1, nm - l) if nm > 0 else (1,)):
                     cost = cost_for_levels(car.b, l, n)
                     if spent + cost > budget:
                         continue
-                    d = part_term(l + n) - part_term(l)
-                    r = cost / d
+                    r = cost / (TERM[l + n] - TERM[l])
                     if best is None or r < best[0]:
                         best = (r, p, n, cost)
             if best is None:
@@ -267,18 +307,25 @@ class Game:
             spent += cost
         return car_income(car.b, levels)
 
+    def idle(self):
+        shown = set(map(id, self.exhibited))
+        return [c for c in self.cars if c.restored and id(c) not in shown]
+
     def arrange(self):
         """Expose les voitures mises à neuf : places libres puis échanges rentables."""
-        idle = [c for c in self.cars if c.restored and c not in self.exhibited]
-        idle.sort(key=lambda c: -c.income())
-        for c in list(idle):
-            if len(self.exhibited) < self.slots:
-                self.exhibited.append(c)
-                idle.remove(c)
+        idle = sorted(self.idle(), key=lambda c: (-c.income(), -c.b))
+        while idle and len(self.exhibited) < self.slots:
+            self.exhibited.append(idle.pop(0))
         if not idle:
             return
+        # une seule candidate par rareté : les voitures neuves d'une même rareté se valent
+        best_by_r = {}
+        for c in idle:
+            if c.rarity not in best_by_r or c.income() > best_by_r[c.rarity].income():
+                best_by_r[c.rarity] = c
         budget = max(self.income(), 1.0) * SWAP_HORIZON
-        for c in sorted(idle, key=lambda c: -c.b):
+        for r in sorted(best_by_r, reverse=True):
+            c = best_by_r[r]
             worst = min(self.exhibited, key=lambda e: e.income())
             if c.b <= worst.b:
                 continue
@@ -287,73 +334,74 @@ class Game:
                 self.exhibited.append(c)
 
     # --- achats ---
-    def candidates(self):
+    def candidates(self, idle_best):
         inc = max(self.income(), 1e-9)
         m = self.mult()
+        coins = self.coins
         out = []
         parts = self.parts()
         for car in self.exhibited:
+            k = car.b * 0.1 * m
+            base = COST_FACTOR * car.b / (COST_GROWTH - 1.0)
             for p in range(parts):
                 l = car.levels[p]
                 if l >= MAX_LEVEL:
                     continue
-                nm = next_milestone(l)
-                opts = {1}
-                if nm > 0:
-                    opts.add(nm - l)
-                for n in opts:
-                    cost = cost_for_levels(car.b, l, n)
-                    d = car.b * 0.1 * (part_term(l + n) - part_term(l)) * m
-                    out.append((cost / d + max(0.0, cost - self.coins) / inc, cost, ("part", car, p, n)))
+                nm = NEXT_MS[l]
+                for n in ((1, nm - l) if nm > 0 and nm - l > 1 else (1,)):
+                    cost = base * POW[l] * (POW[n] - 1.0)
+                    d = k * (TERM[l + n] - TERM[l])
+                    w = cost - coins
+                    out.append((cost / d + (w / inc if w > 0 else 0.0), cost, car, p, n))
         # place : seulement s'il y a une voiture mise à neuf qui attend
-        if self.slots < MAX_SLOTS:
-            idle = [c for c in self.cars if c.restored and c not in self.exhibited]
-            if idle:
-                best = max(c.income() for c in idle) * m
-                cost = slot_cost(self.slots + 1)
-                out.append((cost / best + max(0.0, cost - self.coins) / inc, cost, ("slot",)))
-        # étape : on l'évalue avec la montée des nouvelles pièces jusqu'au palier 25
+        if self.slots < MAX_SLOTS and idle_best > 0:
+            cost = slot_cost(self.slots + 1)
+            w = cost - coins
+            out.append((cost / (idle_best * m) + (w / inc if w > 0 else 0.0), cost, None, "slot", 0))
+        # étape : évaluée avec la montée des nouvelles pièces jusqu'au palier 25
         if self.stage + 1 < len(STAGES):
             newp = STAGES[self.stage + 1][0] - parts
             price = STAGES[self.stage + 1][1]
             bc, bd = price, 0.0
             for car in self.exhibited:
                 bc += newp * cost_for_levels(car.b, 0, 25)
-                bd += newp * car.b * 0.1 * (part_term(25) - part_term(0)) * m
+                bd += newp * car.b * 0.1 * (TERM[25] - TERM[0]) * m
             if bd > 0:
-                out.append((bc / bd + max(0.0, price - self.coins) / inc, price, ("stage",)))
+                w = price - coins
+                out.append((bc / bd + (w / inc if w > 0 else 0.0), price, None, "stage", 0))
         return out
 
     def buy_loop(self):
         bought = False
-        for _ in range(5000):
-            cands = self.candidates()
+        idle = self.idle()
+        idle_best = max((c.income() for c in idle), default=0.0)
+        for _ in range(20000):
+            cands = self.candidates(idle_best)
             if not cands:
                 break
             cands.sort(key=lambda x: x[0])
-            score, cost, act = cands[0]
+            score, cost, car, p, n = cands[0]
             if cost > self.coins:
                 break
             self.coins -= cost
             bought = True
-            if act[0] == "part":
-                _, car, p, n = act
-                car.levels[p] += n
+            if car is not None:
+                car.add_levels(p, n)
                 # achats en rafale sur la même pièce tant qu'elle reste la meilleure
                 second = cands[1][0] if len(cands) > 1 else float("inf")
-                inc = max(self.income(), 1e-9)
-                m = self.mult()
-                while n == 1 and car.levels[p] < MAX_LEVEL:
+                k = car.b * 0.1 * self.mult()
+                while car.levels[p] < MAX_LEVEL:
                     l = car.levels[p]
                     c = part_cost(car.b, l)
-                    d = car.b * 0.1 * (part_term(l + 1) - part_term(l)) * m
-                    if c > self.coins or c / d > second:
+                    if c > self.coins or c / (k * (TERM[l + 1] - TERM[l])) > second:
                         break
                     self.coins -= c
-                    car.levels[p] += 1
-            elif act[0] == "slot":
+                    car.add_levels(p, 1)
+            elif p == "slot":
                 self.slots += 1
                 self.arrange()
+                idle = self.idle()
+                idle_best = max((c.income() for c in idle), default=0.0)
             else:
                 self.stage += 1
         return bought
@@ -380,10 +428,13 @@ def run(profile_key, seed, days=DAYS, game=None, **kw):
     g = game or Game(p, seed, **kw)
     daily = []
     last_end = None  # heure absolue (h) de fin de la dernière session
+    carry = 0.0      # spots fractionnaires reportés au lendemain
     for d in range(days):
-        g.new_day()
+        g.new_day(d)
         g.stats["token_waste_day"] = 0
-        n = p["spots"](d)
+        carry += p["spots"](d)
+        n = int(carry)
+        carry -= n
         per = [n // 6 + (1 if i < n % 6 else 0) for i in range(6)]
         tokens_start = g.tokens
         new_before = g.stats["new"]
@@ -397,7 +448,7 @@ def run(profile_key, seed, days=DAYS, game=None, **kw):
         daily.append(dict(day=d + 1, income=g.income(), locked=len(g.locked()),
                           models=len(g.cars), restored=g.unique_restored(), new=g.stats["new"] - new_before,
                           restores=used, tokens_left=g.tokens, slots=g.slots, stage=g.stage,
-                          unused_quota=max(0, min(tokens_start, g.free_per_day) - used)))
+                          unused_quota=max(0, min(tokens_start, g.quota()) - used), ads=g.stats["ads"]))
     return g, daily
 
 
@@ -421,7 +472,7 @@ def season2(profile_key, seed, target, **kw):
     g.slots = START_SLOTS
     g.stage = 0
     for c in g.cars:
-        c.levels = [0] * 10
+        c.reset()
     g.exhibited = sorted([c for c in g.cars if c.restored], key=lambda c: -c.b)[:START_SLOTS]
     g.tokens = g.free_per_day
     _, daily = run(profile_key, seed + 7777, days=30, game=g)
@@ -527,18 +578,38 @@ def print_series(results, days=(1, 2, 3, 5, 7, 10, 14, 21, 28, 35, 49, 63, 70)):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--runs", type=int, default=30)
+    ap.add_argument("--runs", type=int, default=20)
     ap.add_argument("--csv", default="")
     ap.add_argument("--no-variants", action="store_true")
+    ap.add_argument("--stage-prices", default="",
+                    help="prix Atelier,Showroom,Hangar à tester (ex. 2e5,2e8,2e10)")
+    ap.add_argument("--profiles", default="",
+                    help="profils à simuler, séparés par des virgules (défaut : tous)")
     a = ap.parse_args()
+    if a.stage_prices:
+        prices = [float(x) for x in a.stage_prices.split(",")]
+        for i, price in enumerate(prices, start=1):
+            STAGES[i] = (STAGES[i][0], price)
+        print(f"Prix des étapes testés : {prices}\n")
 
     print(f"# Saison de {DAYS} jours, {a.runs} tirages par profil (médianes)\n")
     print("## Règles actuelles\n")
-    keys = ["gratuit", "pubs", "rural", "gros_spotteur", "gros_spotteur_pubs", "ancien", "ancien_rural"]
+    keys = ["gratuit", "pubs", "rural", "gros_spotteur", "gros_spotteur_pubs", "ancien", "ancien_rural", "ancien_gros"]
+    if a.profiles:
+        keys = a.profiles.split(",")
     results = [summarize(k, a.runs) for k in keys]
     ref = results[0]["end_med"]
     print_profile_table(results, ref)
     print_series(results)
+    print("\nJour (médian) d'achat de chaque étape :\n")
+    print("| Profil | Atelier | Showroom | Hangar |")
+    print("|---|---|---|---|")
+    for r in results:
+        cells = []
+        for st in (1, 2, 3):
+            day = next((i + 1 for i, s in enumerate(r["series"]) if s["stage"] >= st), None)
+            cells.append(f"j{day}" if day else "jamais")
+        print(f"| {r['label']} | " + " | ".join(cells) + " |")
 
     if a.csv:
         os.makedirs(a.csv, exist_ok=True)
@@ -551,23 +622,41 @@ def main():
 
     if a.no_variants:
         return
-    print("\n## Variantes de réglage (gros spotteur sans pub, puis gratuit)\n")
+    print("\n## Variantes de réglage (comparaison appariée : mêmes spots que l'ancien modèle)\n")
+    print("Revenu rapporté à l'ancien modèle (sans mise à neuf) aux jours 7 / 14 / 28 / 70, médiane des rapports.\n")
+    vr = max(8, a.runs // 2)
     variants = [
         ("Actuel : 5/j, jetons = max(jetons, 5)", {}),
-        ("A : 5/j + jetons cumulables (plafond 15)", dict(token_rule="add")),
-        ("B : 8/j, max", dict(free_per_day=8)),
-        ("C : grises = 0,5 % de bonus collection", dict(gray_bonus=0.5)),
-        ("A + C", dict(token_rule="add", gray_bonus=0.5)),
-        ("D : 3/j, max (plus serré)", dict(free_per_day=3)),
+        ("A : jetons cumulables (+5/j, plafond 15)", dict(token_rule="add")),
+        ("B : 8/j", dict(free_per_day=8)),
+        ("C : voiture grise = 0,5 % de bonus collection", dict(gray_bonus=0.5)),
+        ("D : 3/j (plus serré)", dict(free_per_day=3)),
+        ("E : bienvenue 10/j pendant 7 j, puis 5/j", dict(welcome_days=7, welcome_quota=10)),
+        ("F : Rare et plus mises à neuf d'office, 5/j", dict(free_rarity=2)),
+        ("G : E + F + jetons cumulables", dict(welcome_days=7, welcome_quota=10, free_rarity=2, token_rule="add")),
+        ("H : 3/j + E + F + cumulables", dict(free_per_day=3, welcome_days=7, welcome_quota=10, free_rarity=2, token_rule="add")),
     ]
-    print("| Variante | Profil | Revenu fin | vs ancien modèle | Gris max | Gris j70 | Doublement j3-14 | Sessions avec achat |")
-    print("|---|---|---|---|---|---|---|---|")
-    anc = results[5]["end_med"]
+    refs = {}
+    for ref_key in ("ancien", "ancien_gros"):
+        refs[ref_key] = [run(ref_key, 1000 + r)[1] for r in range(vr)]
+    print("| Variante | Profil | j7 | j14 | j28 | j70 | Gris max | Jours avec ≥ 10 grises | Pubs/j (j1-14) | Mises à neuf payées en pub sur la saison |")
+    print("|---|---|---|---|---|---|---|---|---|---|")
     for name, kw in variants:
-        for key in ("gros_spotteur", "gratuit"):
-            r = summarize(key, max(8, a.runs // 2), s2=False, **kw)
-            print(f"| {name} | {r['label']} | {fmt(r['end_med'])}/s | {r['end_med'] / anc:.2f} | {r['gray_peak']:.0f} | {r['gray_end']:.0f} "
-                  f"| {r['dt'][1]:.1f} h | {r['buy'] * 100:.0f} % |")
+        for key, ref_key in (("gratuit", "ancien"), ("pubs", "ancien"), ("gros_spotteur", "ancien_gros"), ("gros_spotteur_pubs", "ancien_gros")):
+            ratios = {d: [] for d in (7, 14, 28, 70)}
+            peaks, days10, ads14, ads_all = [], [], [], []
+            for r in range(vr):
+                _, daily = run(key, 1000 + r, **kw)
+                ref = refs[ref_key][r]
+                for d in ratios:
+                    ratios[d].append(daily[d - 1]["income"] / ref[d - 1]["income"])
+                peaks.append(max(x["locked"] for x in daily))
+                days10.append(sum(1 for x in daily if x["locked"] >= 10))
+                ads14.append(daily[13]["ads"] / 14)
+                ads_all.append(daily[-1]["ads"])
+            cells = " | ".join(f"{statistics.median(ratios[d]):.2f}" for d in ratios)
+            print(f"| {name} | {PROFILES[key]['label']} | {cells} | {statistics.median(peaks):.0f} | {statistics.median(days10):.0f} "
+                  f"| {statistics.mean(ads14):.1f} | {statistics.mean(ads_all):.0f} |")
 
 
 if __name__ == "__main__":
