@@ -16,7 +16,7 @@ Ce qui est jouable :
 - un **spot simulé** toutes les 3 minutes, en attendant la caméra de la phase 1 ;
 - le tutoriel avec le doigt pixel, le mode test « argent illimité » dans le Menu, la sauvegarde automatique.
 
-Provisoire : la voiture est un sprite pixel art dessiné par le code (vue de profil) et recoloré, en attendant les sprites générés. Pas encore de sons.
+Rendu : vrai pixel art en 320 × 568 agrandi sans flou, polices pixel, cadres et icônes dessinés en code. Les voitures sont modélisées en volume puis rendues en pixel art (vue 3/4 avant fixe), en attendant les sprites générés de la phase 1. Pas encore de sons.
 
 ## Lancer le jeu
 
@@ -37,5 +37,10 @@ Les mêmes tests tournent sur GitHub à chaque envoi (onglet Actions).
 ## Captures d'écran
 
 ```bash
-GODOT=godot tools/screenshots.sh
+GODOT=godot tools/screenshots.sh                                        # écrans du jeu
+godot --headless --path . -s tools/car_sheet.gd -- planche.png 2.5      # toutes les carrosseries
 ```
+
+## Crédits
+
+Polices Jersey 10 (modifiée) et Micro 5 : The Soft Type Project, licence SIL OFL 1.1 (voir `assets/fonts/`).

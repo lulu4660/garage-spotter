@@ -1,17 +1,19 @@
 ## Écran principal de la phase 0 : garage idle jouable sans photo.
-## Construit l'interface en code (une seule scène), relie l'état de la
-## partie à l'affichage, gère les fenêtres, le tutoriel et la sauvegarde.
+## Interface construite en code, en vrai pixel art : le jeu est dessiné en
+## 320 px de large puis agrandi d'un facteur entier (pixels nets).
 extends Control
 
 const Economy = preload("res://scripts/economy.gd")
 const Catalog = preload("res://scripts/catalog.gd")
 const GameState = preload("res://scripts/game_state.gd")
-const CarView = preload("res://scripts/car_view.gd")
+const GarageScene = preload("res://scripts/garage_scene.gd")
 const TutorialOverlay = preload("res://scripts/tutorial_overlay.gd")
-const Palette = preload("res://scripts/palette.gd")
+const PixelUI = preload("res://scripts/pixel_ui.gd")
+const CarRenderer = preload("res://scripts/car_renderer.gd")
 
-const VERSION := "0.6 · phase 0"
+const VERSION := "0.7 · phase 0"
 const AUTOSAVE_EVERY := 10.0
+const CARD_COUNT := 3
 
 var state: GameState
 var persist := true
@@ -21,16 +23,20 @@ var _refresh_left := 0.0
 var _tile_targets: Array = []
 var _reset_armed := false
 
-var coins_label: Label
 var stage_label: Label
+var collection_label: Label
+var coins_label: Label
 var income_label: Label
 var rush_bar: ProgressBar
 var rush_label: Label
-var car_title: Label
-var car_view: CarView
-var tile_buttons: Array[Button] = []
-var collection_box: HBoxContainer
+var car_name: Label
+var car_rarity: Label
+var car_rarity_chip: PanelContainer
+var car_slot_label: Label
+var scene: GarageScene
+var cards: Array[Dictionary] = []
 var spot_button: Button
+var spot_label: Label
 var popup_layer: Control
 var popup_kind := ""
 var popup_root: Control
@@ -41,7 +47,8 @@ var tutorial: TutorialOverlay
 
 
 func _ready() -> void:
-	theme = Palette.make_theme()
+	theme = PixelUI.make_theme()
+	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	state = GameState.new()
 	state.rng.randomize()
 	var shot_path := ""
@@ -76,7 +83,7 @@ func _ready() -> void:
 	state.changed.connect(_on_state_changed)
 	_on_state_changed()
 	if float(offline.get("gain", 0.0)) > 0.0:
-		# Les gains hors ligne sont crédités tout de suite : fermer la fenêtre ne fait rien perdre.
+		# Crédités tout de suite : fermer la fenêtre ne fait rien perdre.
 		state.collect(float(offline["gain"]))
 		if float(offline["seconds"]) >= 30.0:
 			_show_offline(offline)
@@ -111,7 +118,7 @@ func _process(delta: float) -> void:
 
 func _build_ui() -> void:
 	var bg := ColorRect.new()
-	bg.color = Palette.BG
+	bg.color = PixelUI.BG
 	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(bg)
@@ -119,140 +126,27 @@ func _build_ui() -> void:
 	var margin := MarginContainer.new()
 	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	for side in ["left", "right", "top", "bottom"]:
-		margin.add_theme_constant_override("margin_" + side, 8)
+		margin.add_theme_constant_override("margin_" + side, 4)
 	add_child(margin)
 	var main := VBoxContainer.new()
-	main.add_theme_constant_override("separation", 6)
+	main.add_theme_constant_override("separation", 4)
 	margin.add_child(main)
 
-	# Puces en haut : solde, étape, menu.
-	var top := HBoxContainer.new()
-	main.add_child(top)
-	var c := Palette.chip(Palette.GOLD)
-	coins_label = c[1]
-	top.add_child(c[0])
-	var s := Palette.chip(Palette.MUTED)
-	stage_label = s[1]
-	top.add_child(s[0])
-	var spacer := Control.new()
-	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	top.add_child(spacer)
-	var menu := Button.new()
-	menu.text = "Menu"
-	menu.pressed.connect(_show_menu)
-	top.add_child(menu)
+	_build_top_bar(main)
+	_build_hero(main)
+	_build_income(main)
+	_build_cards(main)
+	_build_bottom(main)
 
-	# Gros chiffre des revenus par seconde, et jauge de rush.
-	income_label = Label.new()
-	income_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	income_label.add_theme_font_size_override("font_size", 26)
-	income_label.add_theme_color_override("font_color", Palette.GOLD)
-	main.add_child(income_label)
-	var rush_row := HBoxContainer.new()
-	main.add_child(rush_row)
-	rush_label = Label.new()
-	rush_label.add_theme_font_size_override("font_size", 11)
-	rush_label.add_theme_color_override("font_color", Palette.MUTED)
-	rush_label.custom_minimum_size = Vector2(92, 0)
-	rush_row.add_child(rush_label)
-	rush_bar = ProgressBar.new()
-	rush_bar.show_percentage = false
-	rush_bar.max_value = 1.0
-	rush_bar.custom_minimum_size = Vector2(0, 6)
-	rush_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	rush_bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	rush_row.add_child(rush_bar)
-
-	# Scène du garage.
-	var scene := PanelContainer.new()
-	var scene_sb := Palette.bevel(Palette.EDGE, Palette.EDGE, 2)
-	scene_sb.content_margin_left = 0
-	scene_sb.content_margin_right = 0
-	scene_sb.content_margin_top = 0
-	scene_sb.content_margin_bottom = 0
-	scene.add_theme_stylebox_override("panel", scene_sb)
-	scene.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	main.add_child(scene)
-	car_view = CarView.new()
-	car_view.custom_minimum_size = Vector2(0, 200)
-	car_view.tapped.connect(_on_car_tapped)
-	scene.add_child(car_view)
-	car_title = Label.new()
-	car_title.add_theme_font_size_override("font_size", 12)
-	car_title.add_theme_constant_override("outline_size", 4)
-	car_title.add_theme_color_override("font_outline_color", Palette.EDGE)
-	car_title.size_flags_vertical = Control.SIZE_SHRINK_END
-	car_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	car_title.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	scene.add_child(car_title)
-
-	# Trois tuiles d'amélioration rapide + l'atelier complet.
-	var tiles := HBoxContainer.new()
-	tiles.add_theme_constant_override("separation", 4)
-	main.add_child(tiles)
-	for i in 3:
-		var b := Button.new()
-		b.custom_minimum_size = Vector2(0, 58)
-		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		b.add_theme_font_size_override("font_size", 11)
-		b.clip_text = true
-		b.pressed.connect(_on_tile_pressed.bind(i))
-		tiles.add_child(b)
-		tile_buttons.append(b)
-	var atelier := Button.new()
-	atelier.text = "Atelier"
-	atelier.custom_minimum_size = Vector2(62, 58)
-	atelier.add_theme_font_size_override("font_size", 11)
-	Palette.style_button(atelier, Palette.PANEL_LIGHT, Palette.ORANGE)
-	atelier.pressed.connect(_show_atelier)
-	tiles.add_child(atelier)
-
-	# Bande de la collection exposée.
-	var strip := ScrollContainer.new()
-	strip.custom_minimum_size = Vector2(0, 54)
-	strip.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	main.add_child(strip)
-	collection_box = HBoxContainer.new()
-	collection_box.add_theme_constant_override("separation", 4)
-	strip.add_child(collection_box)
-
-	# Trois boutons en bas : Garage, SPOT, Album.
-	var bottom := HBoxContainer.new()
-	bottom.add_theme_constant_override("separation", 6)
-	main.add_child(bottom)
-	var garage := Button.new()
-	garage.text = "Garage"
-	garage.custom_minimum_size = Vector2(0, 52)
-	garage.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	garage.pressed.connect(_show_garage)
-	bottom.add_child(garage)
-	spot_button = Button.new()
-	spot_button.text = "SPOT"
-	spot_button.custom_minimum_size = Vector2(0, 52)
-	spot_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	spot_button.size_flags_stretch_ratio = 1.4
-	spot_button.add_theme_font_size_override("font_size", 20)
-	Palette.style_button(spot_button, Palette.ORANGE_DARK, Color.WHITE)
-	spot_button.pressed.connect(_on_spot_pressed)
-	bottom.add_child(spot_button)
-	var album := Button.new()
-	album.text = "Album"
-	album.custom_minimum_size = Vector2(0, 52)
-	album.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	album.pressed.connect(_show_album)
-	bottom.add_child(album)
-
-	# Couches du dessus : fenêtres, message bref, tutoriel.
 	popup_layer = Control.new()
 	popup_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	popup_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(popup_layer)
 
 	toast = PanelContainer.new()
-	toast.add_theme_stylebox_override("panel", Palette.bevel(Color("26221d"), Palette.ORANGE, 2))
+	toast.add_theme_stylebox_override("panel", PixelUI.frame("icon", 8, 4))
 	toast.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	toast_label = Label.new()
-	toast_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	toast_label = PixelUI.label("")
 	toast.add_child(toast_label)
 	toast.modulate.a = 0.0
 	add_child(toast)
@@ -262,55 +156,259 @@ func _build_ui() -> void:
 	add_child(tutorial)
 
 
+func _hbox(sep := 4) -> HBoxContainer:
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", sep)
+	return h
+
+
+func _chip(icon_name: String, color := PixelUI.TEXT) -> Array:
+	var p := PanelContainer.new()
+	p.add_theme_stylebox_override("panel", PixelUI.frame("chip", 5, 2))
+	var h := _hbox(3)
+	p.add_child(h)
+	h.add_child(PixelUI.icon_rect(icon_name))
+	var l := PixelUI.label("", "main", color)
+	h.add_child(l)
+	return [p, l]
+
+
+func _build_top_bar(parent: Control) -> void:
+	var bar := PanelContainer.new()
+	bar.add_theme_stylebox_override("panel", PixelUI.frame("panel", 4, 3))
+	parent.add_child(bar)
+	var h := _hbox(4)
+	bar.add_child(h)
+	var st := _chip("garage")
+	stage_label = st[1]
+	h.add_child(st[0])
+	var col := _chip("album")
+	collection_label = col[1]
+	h.add_child(col[0])
+	var spacer := Control.new()
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	h.add_child(spacer)
+	var menu := Button.new()
+	menu.icon = PixelUI.icon("gear")
+	menu.custom_minimum_size = Vector2(26, 24)
+	PixelUI.style_button(menu)
+	menu.pressed.connect(_show_menu)
+	h.add_child(menu)
+
+
+func _build_hero(parent: Control) -> void:
+	var frame := PanelContainer.new()
+	frame.add_theme_stylebox_override("panel", PixelUI.frame("inset", 2, 2))
+	frame.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	parent.add_child(frame)
+	scene = GarageScene.new()
+	scene.custom_minimum_size = Vector2(0, 150)
+	scene.tapped.connect(_on_car_tapped)
+	frame.add_child(scene)
+
+	# Nom de la voiture et rareté, en haut de la scène.
+	var top := VBoxContainer.new()
+	top.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	top.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	top.add_theme_constant_override("separation", 1)
+	frame.add_child(top)
+	var pad := Control.new()
+	pad.custom_minimum_size = Vector2(0, 16)
+	pad.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	top.add_child(pad)
+	car_name = PixelUI.label("", "main")
+	car_name.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	top.add_child(car_name)
+	var chip_row := CenterContainer.new()
+	chip_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	top.add_child(chip_row)
+	car_rarity_chip = PanelContainer.new()
+	car_rarity_chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	chip_row.add_child(car_rarity_chip)
+	car_rarity = PixelUI.label("", "small")
+	car_rarity_chip.add_child(car_rarity)
+
+	# Flèches pour passer d'une voiture exposée à l'autre.
+	var nav := _hbox(0)
+	nav.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	nav.size_flags_vertical = Control.SIZE_SHRINK_END
+	frame.add_child(nav)
+	var prev := Button.new()
+	prev.icon = PixelUI.icon("arrow_l")
+	prev.custom_minimum_size = Vector2(26, 26)
+	PixelUI.style_button(prev)
+	prev.pressed.connect(_cycle_car.bind(-1))
+	nav.add_child(prev)
+	car_slot_label = PixelUI.label("", "small", PixelUI.MUTED)
+	car_slot_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	car_slot_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	car_slot_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	nav.add_child(car_slot_label)
+	var next := Button.new()
+	next.icon = PixelUI.icon("arrow_r")
+	next.custom_minimum_size = Vector2(26, 26)
+	PixelUI.style_button(next)
+	next.pressed.connect(_cycle_car.bind(1))
+	nav.add_child(next)
+
+
+func _build_income(parent: Control) -> void:
+	var panel := PanelContainer.new()
+	panel.add_theme_stylebox_override("panel", PixelUI.frame("inset", 8, 3))
+	parent.add_child(panel)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 0)
+	panel.add_child(v)
+	var row := _hbox(4)
+	v.add_child(row)
+	var coin := PixelUI.icon_rect("coin")
+	coin.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(coin)
+	coins_label = PixelUI.label("", "big", PixelUI.GOLD)
+	coins_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(coins_label)
+	income_label = PixelUI.label("", "main", PixelUI.MONEY)
+	income_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(income_label)
+	var rush_row := _hbox(4)
+	v.add_child(rush_row)
+	rush_label = PixelUI.label("", "small", PixelUI.MUTED)
+	rush_label.custom_minimum_size = Vector2(70, 0)
+	rush_row.add_child(rush_label)
+	rush_bar = PixelUI.bar(PixelUI.ORANGE, 5)
+	rush_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	rush_bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	rush_row.add_child(rush_bar)
+
+
+func _build_cards(parent: Control) -> void:
+	var head := _hbox(4)
+	parent.add_child(head)
+	var t := PixelUI.label("AMÉLIORATIONS", "small", PixelUI.MUTED)
+	t.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	t.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	head.add_child(t)
+	var all := Button.new()
+	all.text = "Atelier"
+	all.icon = PixelUI.icon("wrench")
+	PixelUI.style_button(all, "button", PixelUI.ORANGE)
+	all.pressed.connect(_show_atelier)
+	head.add_child(all)
+
+	for i in CARD_COUNT:
+		var card := PanelContainer.new()
+		card.add_theme_stylebox_override("panel", PixelUI.frame("card", 4, 3))
+		parent.add_child(card)
+		var h := _hbox(5)
+		card.add_child(h)
+		var box := PanelContainer.new()
+		box.add_theme_stylebox_override("panel", PixelUI.frame("icon", 3, 3))
+		box.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		h.add_child(box)
+		var ic := PixelUI.icon_rect("part0")
+		box.add_child(ic)
+		var mid := VBoxContainer.new()
+		mid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		mid.add_theme_constant_override("separation", 0)
+		h.add_child(mid)
+		var name_l := PixelUI.label("", "main")
+		name_l.clip_text = true
+		mid.add_child(name_l)
+		var sub := PixelUI.label("", "small", PixelUI.MUTED)
+		mid.add_child(sub)
+		var prog := PixelUI.bar(PixelUI.ORANGE, 4)
+		mid.add_child(prog)
+		var btn := Button.new()
+		btn.custom_minimum_size = Vector2(76, 0)
+		btn.icon = PixelUI.icon("coin")
+		PixelUI.style_button(btn, "orange", Color.WHITE)
+		btn.pressed.connect(_on_tile_pressed.bind(i))
+		h.add_child(btn)
+		cards.append({"panel": card, "icon": ic, "name": name_l, "sub": sub, "bar": prog, "button": btn})
+
+
+func _build_bottom(parent: Control) -> void:
+	var bar := _hbox(4)
+	parent.add_child(bar)
+	var garage := _nav_button("Garage", "garage")
+	garage.pressed.connect(_show_garage)
+	bar.add_child(garage)
+	spot_button = _nav_button("SPOT", "camera", "orange")
+	spot_button.size_flags_stretch_ratio = 1.3
+	spot_button.pressed.connect(_on_spot_pressed)
+	bar.add_child(spot_button)
+	spot_label = spot_button.get_meta("label")
+	var album := _nav_button("Album", "album")
+	album.pressed.connect(_show_album)
+	bar.add_child(album)
+
+
+func _nav_button(text: String, icon_name: String, kind := "button") -> Button:
+	var b := Button.new()
+	b.custom_minimum_size = Vector2(0, 44)
+	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	PixelUI.style_button(b, kind)
+	var v := VBoxContainer.new()
+	v.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	v.alignment = BoxContainer.ALIGNMENT_CENTER
+	v.add_theme_constant_override("separation", 0)
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	b.add_child(v)
+	var ic := PixelUI.icon_rect(icon_name)
+	v.add_child(ic)
+	var l := PixelUI.label(text, "main", Color.WHITE if kind == "orange" else PixelUI.TEXT)
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(l)
+	b.set_meta("label", l)
+	return b
+
+
 # --- Rafraîchissement ---------------------------------------------------
 
 func _on_state_changed() -> void:
 	if state.get_car(selected_uid).is_empty() or not state.is_exhibited(selected_uid):
 		selected_uid = state.exhibited[0] if not state.exhibited.is_empty() else -1
-	_refresh_car_view()
-	_rebuild_collection()
+	_refresh_car()
 	_refresh_live()
 	if popup_kind in ["atelier", "garage", "album"]:
 		_rebuild_popup()
 
 
-func _refresh_car_view() -> void:
+func _refresh_car() -> void:
 	var car := state.get_car(selected_uid)
 	if car.is_empty():
-		car_title.text = "Garage vide : expose une voiture depuis l'Album"
-		car_view.visible = true
+		car_name.text = "Garage vide"
+		car_rarity.text = "Expose une voiture depuis l'Album"
+		car_slot_label.text = ""
 		return
 	var model := Catalog.get_car(String(car["model"]))
 	var rarity := int(model["rarity"])
-	car_view.configure(Color(String(car["color"])), String(model["body"]), rarity, state.visual_tier(car), state.stage)
-	car_title.text = "%s · %s · %s/s" % [Catalog.display_name(String(car["model"])), Economy.RARITY_NAMES[rarity], Economy.format_number(state.car_income(car))]
-	car_title.add_theme_color_override("font_color", Palette.RARITY[rarity].lightened(0.25))
+	scene.configure(Color(String(car["color"])), String(model["body"]), rarity, state.visual_tier(car), state.stage)
+	car_name.text = Catalog.display_name(String(car["model"])).to_upper()
+	car_rarity.text = Economy.RARITY_NAMES[rarity].to_upper()
+	car_rarity.add_theme_color_override("font_color", PixelUI.RARITY[rarity].lightened(0.35))
+	car_rarity_chip.add_theme_stylebox_override("panel", PixelUI.frame("chip", 5, 1, PixelUI.RARITY[rarity].to_html(false)))
+	car_slot_label.text = "Voiture %d / %d  ·  %d places" % [state.exhibited.find(selected_uid) + 1, state.exhibited.size(), state.slots]
 
 
 func _refresh_live() -> void:
-	coins_label.text = "%s pièces" % Economy.format_number(state.budget())
-	var stage_text: String = Economy.STAGES[state.stage]["name"]
+	coins_label.text = Economy.format_number(state.budget())
+	income_label.text = "+%s /s" % Economy.format_number(state.income())
+	var stage_text := String(Economy.STAGES[state.stage]["name"]).to_upper()
 	if state.has_next_stage():
-		var pct := clampf(state.coins / state.stage_price(), 0.0, 1.0) * 100.0
-		stage_text += " · %s %d %%" % [Economy.STAGES[state.stage + 1]["name"], int(pct)]
+		stage_text += " %d%%" % int(clampf(state.coins / state.stage_price(), 0.0, 1.0) * 100.0)
 	stage_label.text = stage_text
-	income_label.text = "%s /s" % Economy.format_number(state.income())
+	collection_label.text = "%d" % state.unique_models()
 	if state.rush_left > 0.0:
 		rush_bar.value = state.rush_left / Economy.RUSH_DURATION
-		rush_label.text = "RUSH x2 · %d s" % int(ceil(state.rush_left))
-		rush_label.add_theme_color_override("font_color", Palette.ORANGE)
+		rush_label.text = "RUSH x2  %ds" % int(ceil(state.rush_left))
+		rush_label.add_theme_color_override("font_color", PixelUI.ORANGE)
 	else:
 		rush_bar.value = state.rush_charge
-		rush_label.text = "Rush (tape vite)"
-		rush_label.add_theme_color_override("font_color", Palette.MUTED)
-	_refresh_tiles()
-	if state.spot_cooldown > 0.0:
-		spot_button.text = "SPOT  %s" % _clock(state.spot_cooldown)
-	else:
-		spot_button.text = "SPOT"
-	var car := state.get_car(selected_uid)
-	if not car.is_empty():
-		car_title.text = "%s · %s · %s/s" % [Catalog.display_name(String(car["model"])), Economy.RARITY_NAMES[state.rarity_of(car)], Economy.format_number(state.car_income(car) * Economy.collection_multiplier(state.unique_models()))]
+		rush_label.text = "TAPE POUR LE RUSH"
+		rush_label.add_theme_color_override("font_color", PixelUI.MUTED)
+	_refresh_cards()
+	spot_label.text = "SPOT %s" % _clock(state.spot_cooldown) if state.spot_cooldown > 0.0 else "SPOT"
 
 
 func _clock(seconds: float) -> String:
@@ -318,7 +416,7 @@ func _clock(seconds: float) -> String:
 	return "%d:%02d" % [s / 60, s % 60]
 
 
-## Les trois améliorations les moins chères parmi les voitures exposées.
+## Les améliorations les moins chères parmi les voitures exposées.
 func _cheapest_upgrades(count: int) -> Array:
 	var options: Array = []
 	for uid in state.exhibited:
@@ -332,70 +430,48 @@ func _cheapest_upgrades(count: int) -> Array:
 	return options.slice(0, count)
 
 
-func _refresh_tiles() -> void:
-	_tile_targets = _cheapest_upgrades(3)
-	for i in tile_buttons.size():
-		var b := tile_buttons[i]
+func _refresh_cards() -> void:
+	_tile_targets = _cheapest_upgrades(CARD_COUNT)
+	for i in cards.size():
+		var c: Dictionary = cards[i]
+		var btn: Button = c["button"]
 		if i >= _tile_targets.size():
-			b.text = "-"
-			b.disabled = true
+			c["panel"].visible = false
 			continue
+		c["panel"].visible = true
 		var t: Array = _tile_targets[i]
 		var car := state.get_car(int(t[1]))
 		var part := int(t[2])
 		var level := int(car["levels"][part])
 		var model := Catalog.get_car(String(car["model"]))
-		var milestone := Economy.next_milestone(level + 1)
-		var hint := " x2!" if milestone == level + 1 else ""
-		b.text = "%s%s\n%s · niv %d\n%s" % [Economy.PARTS[part]["name"], hint, model["name"], level, Economy.format_number(float(t[0]))]
-		b.disabled = not state.can_afford(float(t[0]))
+		var milestone := Economy.next_milestone(level)
+		var prev := 0
+		for m in Economy.MILESTONES:
+			if m <= level:
+				prev = m
+		(c["icon"] as TextureRect).texture = PixelUI.icon("part%d" % part)
+		c["name"].text = String(Economy.PARTS[part]["name"])
+		var hint := "  x2 au prochain !" if milestone == level + 1 else ""
+		c["sub"].text = "%s  ·  NIV %d%s" % [String(model["name"]).to_upper(), level, hint]
+		c["bar"].value = float(level - prev) / float(maxi(1, milestone - prev)) if milestone > 0 else 1.0
+		btn.text = Economy.format_number(float(t[0]))
+		btn.disabled = not state.can_afford(float(t[0]))
 
 
-func _rebuild_collection() -> void:
-	for child in collection_box.get_children():
-		child.queue_free()
-	for i in state.slots:
-		var b := Button.new()
-		b.custom_minimum_size = Vector2(70, 48)
-		b.add_theme_font_size_override("font_size", 10)
-		if i < state.exhibited.size():
-			var uid := state.exhibited[i]
-			var car := state.get_car(uid)
-			var model := Catalog.get_car(String(car["model"]))
-			var rarity := int(model["rarity"])
-			b.text = "%s\n%s" % [model["name"], Economy.RARITY_NAMES[rarity]]
-			var sb := Palette.bevel(Palette.PANEL_LIGHT if uid != selected_uid else Palette.PANEL_LIGHT.lightened(0.12), Palette.RARITY[rarity], 3)
-			b.add_theme_stylebox_override("normal", sb)
-			b.add_theme_stylebox_override("hover", sb)
-			b.add_theme_color_override("font_color", Palette.RARITY[rarity].lightened(0.3))
-			b.pressed.connect(_select_car.bind(uid))
-		else:
-			b.text = "Place\nlibre"
-			b.add_theme_color_override("font_color", Palette.MUTED)
-			b.pressed.connect(_show_album)
-		collection_box.add_child(b)
-	if state.slots < Economy.MAX_SLOTS:
-		var buy := Button.new()
-		buy.custom_minimum_size = Vector2(70, 48)
-		buy.add_theme_font_size_override("font_size", 10)
-		buy.text = "+ Place\n%s" % Economy.format_number(state.slot_price())
-		Palette.style_button(buy, Palette.PANEL, Palette.GOLD)
-		buy.pressed.connect(_on_buy_slot)
-		collection_box.add_child(buy)
-
-
-func _select_car(uid: int) -> void:
-	selected_uid = uid
-	_refresh_car_view()
-	_rebuild_collection()
+func _cycle_car(step: int) -> void:
+	if state.exhibited.is_empty():
+		return
+	var i := state.exhibited.find(selected_uid)
+	selected_uid = state.exhibited[posmod(i + step, state.exhibited.size())]
+	_refresh_car()
 
 
 # --- Actions du joueur --------------------------------------------------
 
 func _on_car_tapped(local_pos: Vector2) -> void:
 	var gain := state.tap()
-	car_view.bump()
-	_float_text("+%s" % Economy.format_number(gain), car_view.global_position + local_pos)
+	scene.bump()
+	_float_text("+%s" % Economy.format_number(gain), scene.global_position + local_pos)
 
 
 func _on_tile_pressed(i: int) -> void:
@@ -407,7 +483,7 @@ func _on_tile_pressed(i: int) -> void:
 			state.tutorial_step = 2
 		var level := int(state.get_car(int(t[1]))["levels"][int(t[2])])
 		if level in Economy.MILESTONES:
-			_toast("Palier %d : revenus x2 sur cette pièce !" % level)
+			_toast("Palier %d : revenus x2 !" % level)
 
 
 func _on_buy_slot() -> void:
@@ -421,22 +497,17 @@ func _on_spot_pressed() -> void:
 	if state.tutorial_step == 3:
 		state.tutorial_step = 4
 	if state.spot_cooldown > 0.0:
-		_toast("Prochain spot simulé dans %s" % _clock(state.spot_cooldown))
+		_toast("Prochain spot dans %s" % _clock(state.spot_cooldown))
 		return
 	_show_spot(state.spot_simulated())
 
 
 func _float_text(text: String, at: Vector2) -> void:
-	var l := Label.new()
-	l.text = text
-	l.add_theme_color_override("font_color", Palette.GOLD)
-	l.add_theme_constant_override("outline_size", 4)
-	l.add_theme_color_override("font_outline_color", Palette.EDGE)
-	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var l := PixelUI.label(text, "main", PixelUI.GOLD)
 	add_child(l)
-	l.global_position = at - Vector2(10, 20)
+	l.global_position = (at - Vector2(10, 20)).floor()
 	var tw := create_tween().set_parallel(true)
-	tw.tween_property(l, "global_position:y", at.y - 60.0, 0.7)
+	tw.tween_property(l, "global_position:y", floorf(at.y - 50.0), 0.7)
 	tw.tween_property(l, "modulate:a", 0.0, 0.7)
 	tw.chain().tween_callback(l.queue_free)
 
@@ -444,7 +515,7 @@ func _float_text(text: String, at: Vector2) -> void:
 func _toast(text: String) -> void:
 	toast_label.text = text
 	toast.reset_size()
-	toast.position = Vector2((size.x - toast.size.x) * 0.5, size.y - 150.0)
+	toast.position = Vector2(floorf((size.x - toast.size.x) * 0.5), floorf(size.y - 120.0))
 	var tw := create_tween()
 	tw.tween_property(toast, "modulate:a", 1.0, 0.12)
 	tw.tween_interval(1.8)
@@ -470,7 +541,7 @@ func _open_popup(kind: String, title: String, compact := false) -> VBoxContainer
 	popup_root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	popup_layer.add_child(popup_root)
 	var dim := ColorRect.new()
-	dim.color = Color(0, 0, 0, 0.65)
+	dim.color = Color(0.02, 0.02, 0.03, 0.78)
 	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	dim.gui_input.connect(func(e: InputEvent) -> void:
 		if e is InputEventMouseButton and e.pressed:
@@ -478,43 +549,41 @@ func _open_popup(kind: String, title: String, compact := false) -> VBoxContainer
 	popup_root.add_child(dim)
 
 	var panel := PanelContainer.new()
-	var sb := Palette.bevel(Palette.PANEL, Palette.EDGE, 3)
-	sb.content_margin_left = 10
-	sb.content_margin_right = 10
-	sb.content_margin_top = 8
-	sb.content_margin_bottom = 10
-	panel.add_theme_stylebox_override("panel", sb)
+	panel.add_theme_stylebox_override("panel", PixelUI.frame("panel", 7, 6))
 	if compact:
 		var center := CenterContainer.new()
 		center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 		center.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		popup_root.add_child(center)
-		panel.custom_minimum_size = Vector2(minf(310.0, size.x - 24.0), 0)
+		panel.custom_minimum_size = Vector2(minf(280.0, size.x - 16.0), 0)
 		center.add_child(panel)
 	else:
 		panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		panel.offset_left = 10
-		panel.offset_right = -10
-		panel.offset_top = 40
-		panel.offset_bottom = -40
+		panel.offset_left = 6
+		panel.offset_right = -6
+		panel.offset_top = 30
+		panel.offset_bottom = -30
 		popup_root.add_child(panel)
 
 	var vb := VBoxContainer.new()
-	vb.add_theme_constant_override("separation", 6)
+	vb.add_theme_constant_override("separation", 4)
 	panel.add_child(vb)
-	var header := HBoxContainer.new()
+	var header := _hbox(4)
 	vb.add_child(header)
-	var t := Label.new()
-	t.text = title
+	var t := PixelUI.label(title.to_upper(), "main", PixelUI.GOLD)
 	t.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	t.add_theme_font_size_override("font_size", 18)
-	t.add_theme_color_override("font_color", Palette.GOLD)
+	t.clip_text = true
 	header.add_child(t)
 	var close := Button.new()
 	close.text = "X"
-	close.custom_minimum_size = Vector2(34, 30)
+	close.custom_minimum_size = Vector2(24, 22)
+	PixelUI.style_button(close)
 	close.pressed.connect(_close_popup)
 	header.add_child(close)
+	var rule := ColorRect.new()
+	rule.color = Color("3a3942")
+	rule.custom_minimum_size = Vector2(0, 1)
+	vb.add_child(rule)
 	if compact:
 		return vb
 	popup_scroll = ScrollContainer.new()
@@ -523,7 +592,7 @@ func _open_popup(kind: String, title: String, compact := false) -> VBoxContainer
 	vb.add_child(popup_scroll)
 	var content := VBoxContainer.new()
 	content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	content.add_theme_constant_override("separation", 4)
+	content.add_theme_constant_override("separation", 3)
 	popup_scroll.add_child(content)
 	return content
 
@@ -544,32 +613,41 @@ func _rebuild_popup() -> void:
 			sc.scroll_vertical = scroll
 
 
-func _label(text: String, font_size := 13, color := Palette.TEXT, wrap := true) -> Label:
-	var l := Label.new()
-	l.text = text
-	l.add_theme_font_size_override("font_size", font_size)
-	l.add_theme_color_override("font_color", color)
-	if wrap:
-		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	return l
-
-
-func _row_panel(parent: Control) -> HBoxContainer:
+func _row(parent: Control, icon_name := "", border := "") -> HBoxContainer:
 	var p := PanelContainer.new()
-	p.add_theme_stylebox_override("panel", Palette.bevel(Palette.PANEL_LIGHT, Palette.EDGE, 2))
+	p.add_theme_stylebox_override("panel", PixelUI.frame("card", 4, 3, border))
 	parent.add_child(p)
-	var h := HBoxContainer.new()
-	h.add_theme_constant_override("separation", 4)
+	var h := _hbox(5)
 	p.add_child(h)
+	if icon_name != "":
+		var box := PanelContainer.new()
+		box.add_theme_stylebox_override("panel", PixelUI.frame("icon", 3, 3))
+		box.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		box.add_child(PixelUI.icon_rect(icon_name))
+		h.add_child(box)
 	return h
 
 
-func _small_button(text: String, enabled: bool, action: Callable) -> Button:
+func _texts(parent: Control, title: String, sub: String, title_color := PixelUI.TEXT) -> void:
+	var v := VBoxContainer.new()
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	v.add_theme_constant_override("separation", 0)
+	parent.add_child(v)
+	var t := PixelUI.label(title, "main", title_color)
+	t.clip_text = true
+	v.add_child(t)
+	if sub != "":
+		v.add_child(PixelUI.label(sub, "small", PixelUI.MUTED, true))
+
+
+func _buy_button(text: String, enabled: bool, action: Callable, with_coin := true) -> Button:
 	var b := Button.new()
 	b.text = text
-	b.custom_minimum_size = Vector2(58, 40)
-	b.add_theme_font_size_override("font_size", 10)
+	if with_coin:
+		b.icon = PixelUI.icon("coin")
+	b.custom_minimum_size = Vector2(0, 26)
 	b.disabled = not enabled
+	PixelUI.style_button(b, "orange", Color.WHITE)
 	b.pressed.connect(action)
 	return b
 
@@ -581,155 +659,172 @@ func _show_atelier() -> void:
 		return
 	var model := Catalog.get_car(String(car["model"]))
 	var content := _open_popup("atelier", "Atelier · %s" % model["name"])
-	content.add_child(_label("Chaque pièce a 200 niveaux. Aux niveaux 25, 50, 100, 150 et 200, ses revenus doublent.", 11, Palette.MUTED))
+	content.add_child(PixelUI.label("200 niveaux par pièce. Revenus x2 aux niveaux 25, 50, 100, 150 et 200.", "small", PixelUI.MUTED, true))
 	for part in Economy.PARTS.size():
 		var level := int(car["levels"][part])
 		var info: Dictionary = Economy.PARTS[part]
-		var row := _row_panel(content)
-		var text := VBoxContainer.new()
-		text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		row.add_child(text)
-		text.add_child(_label("%s · niv %d" % [info["name"], level], 13))
-		if part >= state.unlocked_parts():
+		var locked := part >= state.unlocked_parts()
+		var row := _row(content, "lock" if locked else "part%d" % part)
+		if locked:
 			var needed := ""
 			for s in Economy.STAGES:
 				if int(s["parts"]) > part:
-					needed = s["name"]
+					needed = String(s["name"])
 					break
-			text.add_child(_label("%s · se débloque avec : %s" % [info["stat"], needed], 10, Palette.MUTED))
+			_texts(row, String(info["name"]), "Se débloque avec : %s" % needed, PixelUI.MUTED)
 			continue
 		var m := Economy.next_milestone(level)
 		var x2 := int(pow(2, Economy.milestones_passed(level)))
-		var sub := "%s · x%d" % [info["stat"], x2]
-		if m > 0:
-			sub += " · prochain x2 au niv %d" % m
-		text.add_child(_label(sub, 10, Palette.MUTED))
+		_texts(row, "%s  niv %d" % [info["name"], level], "%s · x%d%s" % [info["stat"], x2, ("  ·  x2 au niv %d" % m) if m > 0 else ""])
 		if level >= Economy.MAX_LEVEL:
-			row.add_child(_label("MAX", 13, Palette.GOLD, false))
+			row.add_child(PixelUI.label("MAX", "main", PixelUI.GOLD))
 			continue
 		var uid := selected_uid
-		for count in [1, 10, -1]:
-			var q := state.part_quote(uid, part, count)
-			var label := ("+%d" % int(q["count"])) if count > 0 else ("Max +%d" % int(q["count"]))
-			var ok: bool = state.can_afford(float(q["cost"])) and int(q["count"]) > 0 and (count < 0 or int(q["count"]) == count)
-			row.add_child(_small_button("%s\n%s" % [label, Economy.format_number(float(q["cost"]))], ok, func() -> void: state.buy_part(uid, part, count)))
+		var buttons := VBoxContainer.new()
+		buttons.add_theme_constant_override("separation", 2)
+		row.add_child(buttons)
+		var q1 := state.part_quote(uid, part, 1)
+		buttons.add_child(_buy_button(Economy.format_number(float(q1["cost"])), state.can_afford(float(q1["cost"])), func() -> void: state.buy_part(uid, part, 1)))
+		var qm := state.part_quote(uid, part, -1)
+		var max_ok := state.can_afford(float(qm["cost"])) and int(qm["count"]) > 1
+		var mb := _buy_button("MAX +%d" % int(qm["count"]), max_ok, func() -> void: state.buy_part(uid, part, -1), false)
+		PixelUI.style_button(mb, "button", PixelUI.ORANGE)
+		buttons.add_child(mb)
 
 
 func _show_garage() -> void:
 	var content := _open_popup("garage", "Garage")
-	content.add_child(_label("Seules les voitures exposées rapportent. Chaque étape agrandit le garage et débloque de nouvelles pièces.", 11, Palette.MUTED))
+	content.add_child(PixelUI.label("Seules les voitures exposées rapportent. Chaque étape agrandit le garage et débloque des pièces.", "small", PixelUI.MUTED, true))
 	for i in Economy.STAGES.size():
 		var s: Dictionary = Economy.STAGES[i]
-		var row := _row_panel(content)
-		var text := VBoxContainer.new()
-		text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		row.add_child(text)
-		var color := Palette.GOLD if i == state.stage else (Palette.TEXT if i < state.stage else Palette.MUTED)
-		text.add_child(_label(String(s["name"]), 14, color))
-		text.add_child(_label("%d pièces par voiture" % int(s["parts"]), 10, Palette.MUTED))
-		if i <= state.stage:
-			row.add_child(_label("Construit" if i < state.stage else "Actuel", 12, color, false))
+		var current := i == state.stage
+		var row := _row(content, "garage", "ff7a1a" if current else "")
+		var color := PixelUI.GOLD if current else (PixelUI.TEXT if i < state.stage else PixelUI.MUTED)
+		_texts(row, String(s["name"]).to_upper(), "%d pièces par voiture" % int(s["parts"]), color)
+		if i < state.stage:
+			row.add_child(PixelUI.label("FAIT", "small", PixelUI.MONEY))
+		elif current:
+			row.add_child(PixelUI.label("ACTUEL", "small", PixelUI.GOLD))
 		elif i == state.stage + 1:
-			row.add_child(_small_button("Construire\n%s" % Economy.format_number(float(s["cost"])), state.can_afford(float(s["cost"])), func() -> void:
+			row.add_child(_buy_button(Economy.format_number(float(s["cost"])), state.can_afford(float(s["cost"])), func() -> void:
 				if state.buy_stage():
 					_toast("Bienvenue dans ton %s !" % Economy.STAGES[state.stage]["name"])))
 		else:
-			row.add_child(_label(Economy.format_number(float(s["cost"])), 12, Palette.MUTED, false))
-	var slots_row := _row_panel(content)
-	var slots_text := VBoxContainer.new()
-	slots_text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	slots_row.add_child(slots_text)
-	slots_text.add_child(_label("Places : %d / %d" % [state.slots, Economy.MAX_SLOTS], 14))
-	slots_text.add_child(_label("Collection : %d modèles (+%d %% de revenus)" % [state.unique_models(), state.unique_models()], 10, Palette.MUTED))
+			row.add_child(PixelUI.label(Economy.format_number(float(s["cost"])), "small", PixelUI.MUTED))
+	var slots := _row(content, "album")
+	_texts(slots, "PLACES  %d / %d" % [state.slots, Economy.MAX_SLOTS], "Collection : %d modèles, +%d %% de revenus" % [state.unique_models(), state.unique_models()])
 	if state.slots < Economy.MAX_SLOTS:
-		slots_row.add_child(_small_button("+1 place\n%s" % Economy.format_number(state.slot_price()), state.can_afford(state.slot_price()), _on_buy_slot))
+		slots.add_child(_buy_button(Economy.format_number(state.slot_price()), state.can_afford(state.slot_price()), _on_buy_slot))
 
 
 func _show_album() -> void:
 	var content := _open_popup("album", "Album · %d modèles" % state.unique_models())
-	content.add_child(_label("Toutes tes prises. Expose-les pour qu'elles rapportent (%d / %d places)." % [state.exhibited.size(), state.slots], 11, Palette.MUTED))
+	content.add_child(PixelUI.label("Expose tes prises pour qu'elles rapportent (%d / %d places)." % [state.exhibited.size(), state.slots], "small", PixelUI.MUTED, true))
 	var sorted := state.cars.duplicate()
 	sorted.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return state.car_income(a) > state.car_income(b))
+	var mult := Economy.collection_multiplier(state.unique_models())
 	for car in sorted:
 		var uid := int(car["uid"])
 		var model := Catalog.get_car(String(car["model"]))
 		var rarity := int(model["rarity"])
-		var row := _row_panel(content)
-		var swatch := ColorRect.new()
-		swatch.color = Color(String(car["color"]))
-		swatch.custom_minimum_size = Vector2(8, 0)
-		row.add_child(swatch)
-		var text := VBoxContainer.new()
-		text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		row.add_child(text)
-		text.add_child(_label(Catalog.display_name(String(car["model"])), 13, Palette.RARITY[rarity].lightened(0.3)))
-		text.add_child(_label("%s · %s/s" % [Economy.RARITY_NAMES[rarity], Economy.format_number(state.car_income(car) * Economy.collection_multiplier(state.unique_models()))], 10, Palette.MUTED))
+		var row := _row(content, "", PixelUI.RARITY[rarity].to_html(false))
+		var thumb := TextureRect.new()
+		thumb.texture = CarRenderer.render(String(model["body"]), Color(String(car["color"])), state.visual_tier(car), 0.8)["texture"]
+		thumb.stretch_mode = TextureRect.STRETCH_KEEP_CENTERED
+		thumb.custom_minimum_size = Vector2(76, 0)
+		row.add_child(thumb)
+		_texts(row, Catalog.display_name(String(car["model"])), "%s  ·  %s /s" % [Economy.RARITY_NAMES[rarity].to_upper(), Economy.format_number(state.car_income(car) * mult)], PixelUI.RARITY[rarity].lightened(0.35))
+		var b := Button.new()
+		b.custom_minimum_size = Vector2(64, 24)
 		if state.is_exhibited(uid):
-			row.add_child(_small_button("Retirer", true, func() -> void: state.withdraw(uid)))
+			b.text = "Retirer"
+			PixelUI.style_button(b)
+			b.pressed.connect(func() -> void: state.withdraw(uid))
 		else:
-			row.add_child(_small_button("Exposer", state.exhibited.size() < state.slots, func() -> void: state.expose(uid)))
-	var total := Catalog.CARS.size()
-	content.add_child(_label("%d modèles sur %d au catalogue de la phase 0." % [state.unique_models(), total], 10, Palette.MUTED))
+			b.text = "Exposer"
+			PixelUI.style_button(b, "orange", Color.WHITE)
+			b.disabled = state.exhibited.size() >= state.slots
+			b.pressed.connect(func() -> void: state.expose(uid))
+		row.add_child(b)
+	content.add_child(PixelUI.label("%d modèles sur %d au catalogue de la phase 0." % [state.unique_models(), Catalog.CARS.size()], "small", PixelUI.MUTED, true))
 
 
 func _show_spot(result: Dictionary) -> void:
 	var model := Catalog.get_car(String(result["model"]))
 	var rarity := int(result["rarity"])
-	var vb := _open_popup("spot", "Spot !", true)
-	var preview := CarView.new()
+	var vb := _open_popup("spot", "Nouveau spot !" if result["is_new"] else "Spot !", true)
+	var preview := GarageScene.new()
 	preview.show_backdrop = false
 	preview.interactive = false
-	preview.custom_minimum_size = Vector2(0, 150)
+	preview.custom_minimum_size = Vector2(0, 120)
 	vb.add_child(preview)
 	preview.configure(Color(String(model["color"])), String(model["body"]), rarity, 0, 0)
-	var name_label := _label(Catalog.display_name(String(result["model"])), 20, Palette.RARITY[rarity].lightened(0.3))
+	var name_label := PixelUI.label(Catalog.display_name(String(result["model"])).to_upper(), "main", PixelUI.RARITY[rarity].lightened(0.35))
 	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vb.add_child(name_label)
-	var r := _label(Economy.RARITY_NAMES[rarity].to_upper(), 14, Palette.RARITY[rarity])
-	r.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	vb.add_child(r)
+	var chip_row := CenterContainer.new()
+	vb.add_child(chip_row)
+	var chip := PanelContainer.new()
+	chip.add_theme_stylebox_override("panel", PixelUI.frame("chip", 6, 1, PixelUI.RARITY[rarity].to_html(false)))
+	chip.add_child(PixelUI.label(Economy.RARITY_NAMES[rarity].to_upper(), "small", PixelUI.RARITY[rarity].lightened(0.35)))
+	chip_row.add_child(chip)
+	var gain_row := CenterContainer.new()
+	vb.add_child(gain_row)
+	var gh := _hbox(3)
+	gain_row.add_child(gh)
+	gh.add_child(PixelUI.icon_rect("coin"))
+	gh.add_child(PixelUI.label("+%s" % Economy.format_number(float(result["gain"])), "main", PixelUI.GOLD))
 	var what := "Déjà dans ta collection."
 	if result["is_new"]:
-		what = "Nouveau modèle ! Exposé au garage." if result["placed"] else "Nouveau modèle ! Garage plein : il t'attend dans l'Album."
-	var g := _label("+%s pièces\n%s" % [Economy.format_number(float(result["gain"])), what], 13)
-	g.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	vb.add_child(g)
-	var note := _label("Phase 0 : spot simulé. La vraie caméra arrive en phase 1.", 10, Palette.MUTED)
+		what = "Exposée au garage." if result["placed"] else "Garage plein : elle t'attend dans l'Album."
+	var w := PixelUI.label(what, "small", PixelUI.TEXT, true)
+	w.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vb.add_child(w)
+	var note := PixelUI.label("Phase 0 : spot simulé, la caméra arrive en phase 1.", "small", PixelUI.MUTED, true)
 	note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vb.add_child(note)
 	var ok := Button.new()
-	ok.text = "Super !"
-	Palette.style_button(ok, Palette.ORANGE_DARK, Color.WHITE)
+	ok.text = "SUPER !"
+	ok.custom_minimum_size = Vector2(0, 28)
+	PixelUI.style_button(ok, "orange", Color.WHITE)
 	ok.pressed.connect(_close_popup)
 	vb.add_child(ok)
 	popup_root.modulate.a = 0.0
 	create_tween().tween_property(popup_root, "modulate:a", 1.0, 0.25)
 	if result["is_new"] and result["placed"]:
-		_select_car(int(result["uid"]))
+		selected_uid = int(result["uid"])
+		_refresh_car()
 
 
 func _show_offline(offline: Dictionary) -> void:
 	var vb := _open_popup("offline", "Bon retour !", true)
-	var l := _label("Pendant ton absence (%s), ton garage a gagné :" % Economy.format_duration(float(offline["seconds"])), 13)
+	var l := PixelUI.label("Pendant ton absence (%s), ton garage a gagné :" % Economy.format_duration(float(offline["seconds"])), "small", PixelUI.TEXT, true)
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vb.add_child(l)
-	var g := _label("+%s pièces" % Economy.format_number(float(offline["gain"])), 24, Palette.GOLD)
-	g.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	vb.add_child(g)
-	var note := _label("100 % pendant 2 h, puis 50 % jusqu'à 8 h.", 10, Palette.MUTED)
+	var row := CenterContainer.new()
+	vb.add_child(row)
+	var h := _hbox(4)
+	row.add_child(h)
+	var coin := PixelUI.icon_rect("coin")
+	coin.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	h.add_child(coin)
+	h.add_child(PixelUI.label("+%s" % Economy.format_number(float(offline["gain"])), "big", PixelUI.GOLD))
+	var note := PixelUI.label("100 % pendant 2 h, puis 50 % jusqu'à 8 h.", "small", PixelUI.MUTED, true)
 	note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vb.add_child(note)
 	var ok := Button.new()
-	ok.text = "Récolter"
-	Palette.style_button(ok, Palette.ORANGE_DARK, Color.WHITE)
+	ok.text = "RÉCOLTER"
+	ok.custom_minimum_size = Vector2(0, 28)
+	PixelUI.style_button(ok, "orange", Color.WHITE)
 	ok.pressed.connect(_close_popup)
 	vb.add_child(ok)
 
 
 func _show_menu() -> void:
-	var vb := _open_popup("menu", "Menu", true)
+	var vb := _open_popup("menu", "Réglages", true)
 	var test := CheckButton.new()
 	test.text = "Mode test : argent illimité"
+	PixelUI.text_style(test, "main")
 	test.button_pressed = state.test_mode
 	test.toggled.connect(func(on: bool) -> void:
 		state.test_mode = on
@@ -739,23 +834,24 @@ func _show_menu() -> void:
 	vb.add_child(test)
 	var tuto := Button.new()
 	tuto.text = "Relancer le tutoriel"
+	PixelUI.style_button(tuto)
 	tuto.pressed.connect(func() -> void:
 		state.tutorial_step = 0
 		_close_popup())
 	vb.add_child(tuto)
 	var reset := Button.new()
 	reset.text = "Recommencer la partie"
-	Palette.style_button(reset, Palette.PANEL_LIGHT, Palette.RED)
+	PixelUI.style_button(reset, "button", PixelUI.RED)
 	reset.pressed.connect(func() -> void:
 		if not _reset_armed:
 			_reset_armed = true
-			reset.text = "Sûr ? Touche encore pour tout effacer"
+			reset.text = "Sûr ? Touche encore"
 			return
 		state.delete_save()
 		state.new_game()
 		_close_popup())
 	vb.add_child(reset)
-	var v := _label("Garage Spotter %s" % VERSION, 10, Palette.MUTED)
+	var v := PixelUI.label("Garage Spotter %s" % VERSION, "small", PixelUI.MUTED)
 	v.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vb.add_child(v)
 
@@ -768,11 +864,11 @@ func _update_tutorial() -> void:
 		return
 	match state.tutorial_step:
 		0:
-			_set_tutorial(car_view, "Touche ta voiture pour gagner tes premières pièces.", false)
+			_set_tutorial(scene, "Touche ta voiture pour gagner tes premières pièces.", false)
 			if not _tile_targets.is_empty() and state.can_afford(float(_tile_targets[0][0])):
 				state.tutorial_step = 1
 		1:
-			_set_tutorial(tile_buttons[0], "Achète une amélioration : ta voiture rapportera plus.", false)
+			_set_tutorial(cards[0]["button"], "Achète une amélioration : ta voiture rapportera plus.", false)
 		2:
 			_set_tutorial(income_label, "Ton garage gagne de l'argent chaque seconde, même jeu fermé.", true)
 		3:
@@ -806,7 +902,10 @@ func _take_screenshot(path: String, popup: String) -> void:
 			_show_offline({"seconds": 4380.0, "gain": 98765.0})
 		"menu":
 			_show_menu()
-	await get_tree().create_timer(0.6).timeout
+	await get_tree().create_timer(0.8).timeout
 	await RenderingServer.frame_post_draw
-	get_viewport().get_texture().get_image().save_png(path)
+	# Le jeu tourne en 320 px de large : la capture est agrandie x3, pixels nets.
+	var img := get_viewport().get_texture().get_image()
+	img.resize(img.get_width() * 3, img.get_height() * 3, Image.INTERPOLATE_NEAREST)
+	img.save_png(path)
 	get_tree().quit()

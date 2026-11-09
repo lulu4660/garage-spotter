@@ -5,18 +5,19 @@ config_version=5
 
 config/name="Garage Spotter"
 config/description="Idle game de car spotting en pixel art."
-config/version="0.6.0"
+config/version="0.7.0"
 run/main_scene="res://scenes/main.tscn"
 config/features=PackedStringArray("4.3", "GL Compatibility")
 
 [display]
 
-window/size/viewport_width=360
-window/size/viewport_height=640
-window/size/window_width_override=405
-window/size/window_height_override=720
-window/stretch/mode="canvas_items"
+window/size/viewport_width=320
+window/size/viewport_height=568
+window/size/window_width_override=320
+window/size/window_height_override=568
+window/stretch/mode="viewport"
 window/stretch/aspect="expand"
+window/stretch/scale_mode="integer"
 window/handheld/orientation=1
 
 [input_devices]

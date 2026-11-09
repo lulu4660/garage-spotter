@@ -24,7 +24,7 @@ func _init() -> void:
 		main._on_car_tapped(Vector2(100, 100))
 	await create_timer(0.3).timeout
 	check(s.tutorial_step == 1, "assez de taps pour une amélioration : le doigt passe à la tuile")
-	check(not main.tile_buttons[0].disabled, "la première tuile est achetable")
+	check(not main.cards[0]["button"].disabled, "la première tuile est achetable")
 
 	var lvl_before: int = s.get_car(s.exhibited[0])["levels"].reduce(func(a, b): return a + b, 0)
 	main._on_tile_pressed(0)
