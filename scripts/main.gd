@@ -50,6 +50,8 @@ var tutorial: TutorialOverlay
 
 
 func _ready() -> void:
+	get_tree().root.size_changed.connect(_fit_window)
+	_fit_window()
 	theme = PixelUI.make_theme()
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	state = GameState.new()
@@ -93,6 +95,20 @@ func _ready() -> void:
 			_show_offline(offline)
 	if shot_path != "":
 		_take_screenshot(shot_path, shot_popup)
+
+
+## Remplit tout l'écran sans bandes noires : on garde un agrandissement entier
+## (pixels nets) et on élargit la zone de jeu (au moins 320 × 568) pour occuper
+## l'espace qui reste.
+func _fit_window() -> void:
+	var root := get_tree().root
+	var win := Vector2(root.size)
+	if win.x <= 0.0 or win.y <= 0.0:
+		return
+	var k := maxf(1.0, floorf(minf(win.x / 320.0, win.y / 568.0)))
+	var target := Vector2i(int(floor(win.x / k)), int(floor(win.y / k)))
+	if root.content_scale_size != target:
+		root.content_scale_size = target
 
 
 func _notification(what: int) -> void:

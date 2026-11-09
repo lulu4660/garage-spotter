@@ -6,7 +6,7 @@ Le document de game design (GDD) fait foi : https://claude.ai/artifact/WgkvZZaTt
 ## Stack
 - Appli : Godot 4 (GDScript), 2D uniquement. Dev sur PC Windows, test sur iPhone via l'export web, App Store plus tard depuis un Mac.
 - Serveur : Supabase (Auth, Postgres + RLS, Storage, Edge Functions).
-- IA : API de vision pour la reconnaissance ; FLUX.1 Schnell via un Worker Cloudflare pour le pixel art (cache par modèle).
+- IA : API de vision pour la reconnaissance ; pixel art de la mise à neuf via un Worker Cloudflare, modèle recommandé FLUX.2 [klein] 4B (part de la photo, ≈ 0,00035 $ l'image, voir `docs/choix-modele-image.md`).
 - Pubs : AdMob. Achats : RevenueCat.
 
 ## Règles non négociables
@@ -42,6 +42,11 @@ Mise à neuf : chaque voiture spottée arrive grise (silhouette de sa carrosseri
 - Couleurs depuis `pixel_ui.gd` ; contour sombre d'1 px sur les sprites ; lumière venant du haut.
 - Aucune image générée par IA dans le dépôt pour l'instant ; aucune marque réelle (logo, calandre reconnaissable).
 - `tools/car_sheet.gd` produit une planche de toutes les carrosseries pour relire le rendu des voitures.
+
+## Version web
+- `export_presets.cfg` : préréglage « Web » sans threads (Safari iPhone, hébergement simple). Export : `godot --headless --path . --export-release "Web" build/web/index.html`.
+- `.github/workflows/web.yml` : export à chaque mise à jour de `main` (archive dans Actions) et mise en ligne sur GitHub Pages (https://lulu4660.github.io/garage-spotter/).
+- `main.gd` élargit la zone de jeu pour remplir l'écran en gardant un agrandissement entier.
 
 ## Vérifier un changement
 - `godot --headless --path . -s tests/run_tests.gd` et `godot --headless --path . -s tests/test_playthrough.gd -- --fresh` doivent passer.

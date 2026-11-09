@@ -17,3 +17,6 @@ supabase/.temp/
 .DS_Store
 Thumbs.db
 screenshots/
+
+# Python
+__pycache__/
