@@ -20,6 +20,18 @@ Le document de game design (GDD) fait foi : https://claude.ai/artifact/WgkvZZaTt
 
 ## Priorité actuelle
 Phase 0 : un garage idle jouable sans photo, pour savoir si la boucle est amusante avant de payer le moindre appel d'IA.
+Le spot est simulé (un toutes les 3 min) ; tout est local, sans serveur.
+
+## Code
+- `scripts/economy.gd` : toutes les formules, fonctions pures (à porter dans les Edge Functions en phase 1). Ne mets aucune règle d'économie ailleurs.
+- `scripts/game_state.gd` : état de la partie, actions du joueur, sauvegarde `user://save.json`.
+- `scripts/main.gd` : interface construite en code, fenêtres, tutoriel. `scripts/car_view.gd` : décor et sprite provisoire.
+- Les nombres sont des `float` (double) : le plus gros revenu possible reste très loin de 1e308.
+- Pas de `class_name` : les scripts se chargent avec `preload`.
+
+## Vérifier un changement
+- `godot --headless --path . -s tests/run_tests.gd` et `godot --headless --path . -s tests/test_playthrough.gd -- --fresh` doivent passer.
+- Pour un changement visible : `tools/screenshots.sh` (via `xvfb-run` sous Linux), puis relire les captures.
 
 ## Agents (.claude/agents/)
 godot-dev, economy-balancer, supabase-backend, ai-pipeline, art-director (relecture), playtester-qa (tests), store-compliance (conformité).
