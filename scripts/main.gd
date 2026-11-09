@@ -1348,7 +1348,7 @@ func _take_screenshot(path: String, popup: String) -> void:
 			for b in buttons:
 				if (b as Button).text.begins_with("METTRE"):
 					(b as Button).pressed.emit()
-			await get_tree().create_timer(2.0).timeout
+			await get_tree().create_timer(float(OS.get_environment("REVEAL_WAIT")) if OS.get_environment("REVEAL_WAIT") != "" else 2.0).timeout
 		"offline":
 			_show_offline({"seconds": 4380.0, "gain": 98765.0})
 		"menu":

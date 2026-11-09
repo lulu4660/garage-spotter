@@ -6,6 +6,7 @@ extends Control
 
 const CarRenderer = preload("res://scripts/car_renderer.gd")
 const PixelUI = preload("res://scripts/pixel_ui.gd")
+const Fx = preload("res://scripts/fx.gd")
 
 const SHADER := """
 shader_type canvas_item;
@@ -46,6 +47,9 @@ var _mat: ShaderMaterial
 var _scale := 2.0
 var _sparks: Array[Dictionary] = []
 var _rng := RandomNumberGenerator.new()
+var _glow: Control
+var _time := 0.0
+var _burst := 0.0
 
 
 func _ready() -> void:
@@ -59,6 +63,13 @@ func _ready() -> void:
 	sh.code = SHADER
 	_mat.shader = sh
 	_car.material = _mat
+	# Lumière douce derrière la voiture (additif) : halo et rayons pendant la révélation.
+	_glow = Control.new()
+	_glow.material = Fx.additive()
+	_glow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_glow.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_glow.draw.connect(_draw_glow)
+	add_child(_glow)
 	add_child(_car)
 	resized.connect(_layout)
 	_layout()
@@ -92,12 +103,17 @@ func _layout() -> void:
 func play() -> void:
 	for i in 26:
 		_sparks.append({"p": Vector2(_rng.randf_range(0.15, 0.85), _rng.randf_range(0.25, 0.7)), "v": Vector2(_rng.randf_range(-20, 20), _rng.randf_range(-50, -15)), "life": _rng.randf_range(0.6, 1.4), "delay": _rng.randf_range(0.0, 1.0)})
+	_burst = 1.0
 	var tw := create_tween()
 	tw.tween_property(self, "progress", 1.0, 1.4).set_trans(Tween.TRANS_SINE)
 	tw.tween_callback(func() -> void: finished.emit())
 
 
 func _process(delta: float) -> void:
+	_time += delta
+	_burst = maxf(0.0, _burst - delta * 0.45)
+	if _glow:
+		_glow.queue_redraw()
 	if _sparks.is_empty():
 		return
 	for s in _sparks:
@@ -140,3 +156,27 @@ func _draw() -> void:
 		draw_rect(Rect2(p, Vector2(1, 1)), col)
 		if s["life"] > 0.8:
 			draw_rect(Rect2(p + Vector2(-1, 0), Vector2(3, 1)), Color(col, 0.5))
+
+
+func _draw_glow() -> void:
+	var c := Vector2(size.x * 0.5, size.y * 0.55)
+	var col: Color = PixelUI.RARITY[rarity]
+	var dot := Fx.soft_dot()
+	var lit := progress
+	# Halo de la rareté, qui grandit avec la révélation.
+	var r := Vector2(size.x * (0.35 + 0.15 * lit), size.y * (0.45 + 0.1 * lit))
+	_glow.draw_texture_rect(dot, Rect2(c - r, r * 2.0), false, Color(col, 0.10 + 0.25 * lit))
+	# Rayons qui tournent pendant la révélation.
+	if _burst > 0.0:
+		for k in 10:
+			var a := TAU * k / 10.0 + _time * 0.6
+			var d := Vector2(cos(a), sin(a))
+			var n := Vector2(-d.y, d.x)
+			var far := c + d * size.x * 0.9
+			_glow.draw_polygon(PackedVector2Array([c, far + n * 14.0, far - n * 14.0]),
+				PackedColorArray([Color(col.lightened(0.4), 0.35 * _burst), Color(col, 0.0), Color(col, 0.0)]))
+	for s in _sparks:
+		if s["delay"] > 0.0:
+			continue
+		var p: Vector2 = s["p"] * size
+		_glow.draw_texture_rect(dot, Rect2(p - Vector2(3, 3), Vector2(6, 6)), false, Color(1.0, 0.85, 0.5, 0.6 * clampf(float(s["life"]), 0.0, 1.0)))
