@@ -24,20 +24,23 @@ Le spot est simulé (un toutes les 3 min) ; tout est local, sans serveur.
 Mise à neuf : chaque voiture spottée arrive grise (silhouette de sa carrosserie) et ne sert à rien tant qu'elle n'est pas mise à neuf (seul le gain immédiat du spot compte). Mettre à neuf = générer son pixel art (phase 1 ; en phase 0, rendu de `car_renderer.gd`). 5 par jour gratuites, + pubs (5/jour), Carats plus tard. Le tuto offre 3 voitures (2 communes, 1 peu commune) mises à neuf gratuitement.
 
 ## Code
-- `scripts/economy.gd` : toutes les formules, fonctions pures (à porter dans les Edge Functions en phase 1). Ne mets aucune règle d'économie ailleurs.
+- `scripts/economy.gd` : formules de base (pièces, étapes, places, hors ligne, spot), fonctions pures (à porter dans les Edge Functions en phase 1).
+- `scripts/progression.gd` : progression longue, données et fonctions pures : réputation (prestige), arbre de compétences (4 branches × 6), collections, missions du jour, succès. Ne mets aucune règle d'économie ailleurs que dans ces deux fichiers.
 - `scripts/game_state.gd` : état de la partie, actions du joueur, sauvegarde `user://save.json`.
 - `scripts/main.gd` : interface construite en code, fenêtres, tutoriel.
 - `scripts/pixel_ui.gd` : couleurs, polices, cadres biseautés (9-slice générés), icônes pixel 16×16.
 - `scripts/car_renderer.gd` : voitures modélisées en volume puis rendues en pixel art, vue 3/4 avant fixe, mises en cache.
-- `scripts/garage_scene.gd` : décor du garage par étape, néons, sol mouillé, plateau, effets au toucher.
+- `scripts/garage_scene.gd` : scène du garage en couches (décor pixel, ville en parallaxe, voiture, brouillard/pluie, lumières additives, post-traitement).
+- `scripts/fx.gd` : shaders « HD-2D » (bloom + étalonnage + vignettage, liseré et reflet de carrosserie, reflet au sol) et textures douces.
+- `assets/env/` : fonds de ville Warped City 2 (CC0, ansimuz).
 - `scripts/reveal_view.gd` : voiture sur plateau, bloquée ou révélée ; animation de mise à neuf (shader).
 - Carrosseries (16) : citadine, compacte, berline, break, 4x4, suv, monospace, combi, fourgon, coupe, fastback, sportback, cabriolet, roadster, pickup, supercar.
 - Les nombres sont des `float` (double) : le plus gros revenu possible reste très loin de 1e308.
 - Pas de `class_name` : les scripts se chargent avec `preload`.
 
 ## Pixel art (règles de rendu)
-- Le jeu est dessiné en 320 × 568 et agrandi d'un facteur entier (stretch « viewport », « integer ») : pas de flou, pas de pixels de tailles différentes.
-- Positions et tailles en pixels entiers ; ne jamais agrandir une image ou une icône par un facteur non entier.
+- Style « HD-2D » : le jeu est mis en page en 320 × 568 et agrandi d'un facteur entier (stretch « canvas_items », « integer »). Les objets (sprites, icônes, texte, cadres) restent en pixels nets ; la lumière, le brouillard, les halos et les particules sont dessinés à la résolution de l'écran, doux.
+- Pour un objet pixel : positions et tailles en pixels entiers, filtre « nearest », jamais d'agrandissement non entier. Les effets doux passent par `fx.gd` (shaders, `soft_dot`, couche additive).
 - Polices : Garage Jersey en 19 (texte) ou 38 (gros chiffres), Micro 5 en 11 (petits textes). Aucune autre taille.
 - Couleurs depuis `pixel_ui.gd` ; contour sombre d'1 px sur les sprites ; lumière venant du haut.
 - Aucune image générée par IA dans le dépôt pour l'instant ; aucune marque réelle (logo, calandre reconnaissable).
@@ -50,7 +53,7 @@ Mise à neuf : chaque voiture spottée arrive grise (silhouette de sa carrosseri
 
 ## Vérifier un changement
 - `godot --headless --path . -s tests/run_tests.gd` et `godot --headless --path . -s tests/test_playthrough.gd -- --fresh` doivent passer.
-- Pour un changement visible : `tools/screenshots.sh` (via `xvfb-run` sous Linux), puis relire les captures.
+- Pour un changement visible : `tools/screenshots.sh` (via `xvfb-run` sous Linux), puis relire les captures. Options de capture : `--demo`, `--fresh`, `--stage=0..3`, `--popup=atelier|garage|album|spot|reveal|offline|menu|tree|staff|collections|missions|succes`.
 
 ## Agents (.claude/agents/)
 godot-dev, economy-balancer, supabase-backend, ai-pipeline, art-director (relecture), playtester-qa (tests), store-compliance (conformité).

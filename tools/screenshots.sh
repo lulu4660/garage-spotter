@@ -12,7 +12,8 @@ shoot() {
 }
 shoot nouveau-joueur --fresh
 shoot garage --demo
-for p in atelier garage album spot offline menu; do
+for st in 0 1 2 3; do shoot "etape-$st" --demo --stage=$st; done
+for p in atelier garage album spot offline menu tree staff collections missions succes; do
   shoot "fenetre-$p" --demo --popup="$p"
 done
 echo "Captures dans $OUT/"
