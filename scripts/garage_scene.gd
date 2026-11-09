@@ -47,8 +47,7 @@ func configure(color: Color, body: String, rarity_index: int, tier_index: int, s
 func _refresh_car() -> void:
 	if size.x <= 0.0:
 		return
-	var target := size.x * (0.80 if show_backdrop else 0.84)
-	var s := clampf(snappedf(target / 92.0, 0.1), 1.0, 3.2)
+	var s := CarRenderer.fit_scale(body_type, Vector2(size.x * (0.80 if show_backdrop else 0.84), size.y * 0.62))
 	if s == _car_scale and not _car.is_empty():
 		return
 	_car_scale = s

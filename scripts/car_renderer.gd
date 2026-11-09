@@ -29,29 +29,86 @@ const RIM_GOLD: Array[String] = ["4f370f", "86601d", "b88e33", "dfba5a", "fbe7a2
 const RIM_DARK: Array[String] = ["111114", "1f2024", "34363c", "50535a", "7a7e86"]
 
 ## Profils (unités ≈ pixels à l'échelle 1). x : de l'arrière (0) à l'avant (len),
-## y : hauteur. « upper » parcourt le haut de la caisse de l'avant vers l'arrière ;
-## « cabin » est l'habitacle (base avant, haut du pare-brise, haut de lunette,
-## base arrière). Le dessous et les passages de roue sont calculés.
+## y : hauteur. « upper » parcourt le haut de la caisse de l'avant vers l'arrière
+## (le 2e point est le haut du pare-chocs) ; « cabin » est l'habitacle : base
+## arrière, base avant, haut du pare-brise, haut de lunette, bas de lunette.
+## Options : open (décapotée, « seats » = x des sièges), bed (benne [x0, x1]),
+## panel (fourgon tôlé), pillars (montants en plus), wing (aileron possible).
 const BODIES := {
 	"citadine": {
-		"len": 56.0, "w": 26.0, "r": 6.0, "axles": [11.0, 45.5], "yb": 3.0,
-		"upper": [[56, 5], [56, 10], [54.5, 12.8], [51, 14.0], [44, 15.0], [4, 16.0], [0.5, 15.0], [0, 5.5]],
-		"cabin": [[4, 15.8], [44, 15.0], [33, 26.0], [8, 26.5], [3, 19.0]],
+		"len": 48.0, "w": 25.0, "r": 5.8, "axles": [9.0, 39.0], "yb": 3.0,
+		"upper": [[48, 5], [48, 10], [46.5, 12.6], [42.5, 14.2], [38, 15.0], [2, 16.0], [0.5, 15.0], [0, 5.5]],
+		"cabin": [[2.5, 15.8], [38, 15.0], [30, 27.0], [5, 27.4], [1.5, 19.0]],
 	},
 	"compacte": {
-		"len": 64.0, "w": 27.0, "r": 6.5, "axles": [12.5, 51.0], "yb": 3.0,
-		"upper": [[64, 5], [64, 9.5], [62.5, 12.5], [58, 13.8], [47, 15.0], [6, 16.0], [1.5, 15.5], [0, 12], [0, 5.5]],
-		"cabin": [[5, 15.6], [47, 15.0], [35, 24.5], [10, 25.0], [4.5, 19.0]],
+		"len": 62.0, "w": 27.0, "r": 6.4, "axles": [12.0, 49.5], "yb": 3.0,
+		"upper": [[62, 5], [62, 9.5], [60.5, 12.5], [56, 13.8], [46, 15.0], [5, 16.0], [1.5, 15.5], [0, 12], [0, 5.5]],
+		"cabin": [[4, 15.6], [46, 15.0], [34, 24.5], [9, 25.0], [3.5, 19.0]],
 	},
 	"berline": {
 		"len": 72.0, "w": 28.0, "r": 6.8, "axles": [14.0, 57.0], "yb": 3.2,
 		"upper": [[72, 5], [72, 10], [70, 13.0], [64, 15.0], [52, 15.6], [10, 15.8], [2, 15.8], [0, 13], [0, 5.5]],
 		"cabin": [[11, 15.7], [52, 15.6], [41, 24.3], [21, 24.8], [12, 16.4]],
 	},
+	"break": {
+		"len": 74.0, "w": 28.0, "r": 6.8, "axles": [14.0, 58.0], "yb": 3.2,
+		"upper": [[74, 5], [74, 10], [72, 13.0], [66, 15.0], [54, 15.6], [3, 16.2], [0.5, 15.8], [0, 13], [0, 5.5]],
+		"cabin": [[3, 16.0], [54, 15.6], [43, 24.4], [5, 24.6], [1.6, 17.5]], "pillars": 2,
+	},
+	"4x4": {
+		"len": 68.0, "w": 30.0, "r": 8.0, "axles": [13.0, 54.0], "yb": 5.0,
+		"upper": [[68, 6], [68, 14], [67, 17.0], [62, 18.6], [50, 19.0], [2, 19.5], [0, 18], [0, 6.5]],
+		"cabin": [[2, 19.3], [50, 19.0], [44, 30.0], [4, 30.4], [1.5, 20.5]], "pillars": 2,
+	},
+	"suv": {
+		"len": 68.0, "w": 29.0, "r": 7.5, "axles": [13.5, 54.0], "yb": 4.4,
+		"upper": [[68, 6], [68, 12], [66, 15.0], [60, 17.0], [49, 17.6], [4, 18.2], [1, 17.5], [0, 14], [0, 6]],
+		"cabin": [[4, 18.0], [49, 17.6], [38, 27.0], [9, 27.4], [3, 21.0]],
+	},
+	"monospace": {
+		"len": 66.0, "w": 28.0, "r": 6.8, "axles": [12.0, 52.0], "yb": 3.4,
+		"upper": [[66, 5], [66, 10], [64, 13.2], [60, 15.2], [56, 15.8], [3, 16.5], [0.5, 16], [0, 13], [0, 5.5]],
+		"cabin": [[3, 16.4], [56, 15.8], [42, 28.0], [7, 28.5], [2, 19.0]], "pillars": 2,
+	},
+	"combi": {
+		"len": 66.0, "w": 29.0, "r": 6.8, "axles": [11.0, 52.0], "yb": 3.6,
+		"upper": [[66, 5], [66, 13], [64.5, 16.0], [62, 17.2], [1, 17.5], [0, 16], [0, 5.5]],
+		"cabin": [[1, 17.5], [62, 17.2], [57, 31.0], [2, 31.2], [0.8, 18.0]], "pillars": 3, "wing": false,
+	},
+	"fourgon": {
+		"len": 78.0, "w": 30.0, "r": 7.2, "axles": [14.0, 61.0], "yb": 4.0,
+		"upper": [[78, 6], [78, 13], [76.5, 16.5], [72, 18.0], [1, 18.5], [0, 17], [0, 6]],
+		"cabin": [[1, 18.4], [72, 18.0], [62, 37.0], [2, 37.5], [0.8, 19.0]], "panel": true, "wing": false,
+	},
 	"coupe": {
 		"len": 70.0, "w": 28.0, "r": 6.8, "axles": [14.0, 55.5], "yb": 3.0,
 		"upper": [[70, 4.8], [70, 9.5], [67.5, 12.8], [61, 15.2], [55, 15.5], [47, 15.6], [4, 15.6], [0.5, 15], [0, 5]],
 		"cabin": [[8, 15.6], [47, 15.6], [36, 22.6], [22, 23.0], [9, 16.5]],
+	},
+	"fastback": {
+		"len": 74.0, "w": 29.0, "r": 7.0, "axles": [14.0, 58.0], "yb": 3.0,
+		"upper": [[74, 5], [74, 9.5], [71.5, 13.0], [64, 15.7], [52, 15.9], [4, 15.9], [0.5, 15.2], [0, 12], [0, 5]],
+		"cabin": [[5, 15.8], [52, 15.9], [41, 23.8], [27, 24.2], [6, 16.7]],
+	},
+	"sportback": {
+		"len": 66.0, "w": 28.0, "r": 6.8, "axles": [13.0, 53.0], "yb": 3.0,
+		"upper": [[66, 5], [66, 9.5], [64, 12.8], [58, 15.0], [48, 15.4], [3, 16.0], [0.5, 15.5], [0, 12], [0, 5]],
+		"cabin": [[4, 15.8], [48, 15.4], [38, 23.2], [17, 23.5], [3.5, 17.5]],
+	},
+	"cabriolet": {
+		"len": 70.0, "w": 28.0, "r": 6.8, "axles": [14.0, 55.5], "yb": 3.0,
+		"upper": [[70, 4.8], [70, 9.5], [67.5, 12.8], [61, 15.2], [55, 15.5], [47, 15.6], [4, 15.6], [0.5, 15], [0, 5]],
+		"cabin": [[12, 15.6], [47, 15.6], [42, 21.5], [20, 21.5], [12, 16.0]], "open": true, "seats": [22.0, 34.0],
+	},
+	"roadster": {
+		"len": 62.0, "w": 27.0, "r": 6.6, "axles": [12.0, 50.0], "yb": 3.0,
+		"upper": [[62, 4.6], [62, 9.0], [59.5, 12.6], [52, 15.0], [40, 15.2], [4, 15.2], [0.5, 14.4], [0, 5]],
+		"cabin": [[14, 15.2], [40, 15.2], [35.5, 20.4], [20, 20.4], [14, 15.6]], "open": true, "seats": [26.0],
+	},
+	"pickup": {
+		"len": 80.0, "w": 30.0, "r": 7.8, "axles": [14.0, 62.0], "yb": 5.0,
+		"upper": [[80, 6], [80, 14], [78.5, 17.0], [73, 18.6], [58, 19.2], [34, 19.4], [2, 19.6], [0, 18.5], [0, 6.5]],
+		"cabin": [[33, 19.4], [58, 19.2], [52, 30.0], [35, 30.4], [33, 20.0]], "bed": [2.0, 31.5], "wing": false,
 	},
 	"supercar": {
 		"len": 74.0, "w": 30.0, "r": 6.4, "axles": [15.0, 58.0], "yb": 2.6,
@@ -60,22 +117,47 @@ const BODIES := {
 	},
 }
 
+## Noms des carrosseries pour l'interface.
+const BODY_NAMES := {
+	"citadine": "Citadine", "compacte": "Compacte", "berline": "Berline", "break": "Break",
+	"4x4": "4x4", "suv": "SUV", "monospace": "Monospace", "combi": "Combi", "fourgon": "Fourgon",
+	"coupe": "Coupé", "fastback": "Berline sport", "sportback": "Sportback", "cabriolet": "Cabriolet",
+	"roadster": "Roadster", "pickup": "Pick-up", "supercar": "Supercar",
+}
+
+## Rendu « bloqué » : silhouette grise, phares à peine allumés.
+const LOCKED_BODY := Color("3e3f45")
+const LOCKED_GLASS: Array[String] = ["0a0b0d", "101216", "171a1f", "22262d", "343a43"]
+
 static var _cache := {}
 
 
-## Renvoie {texture, image, exhaust (Vector2), ground (float)} pour une voiture.
-static func render(body: String, color: Color, tier: int, scale: float) -> Dictionary:
-	var key := "%s|%s|%d|%.2f" % [body, color.to_html(false), tier, scale]
+## Renvoie {texture, image, exhaust, anchor, ground} pour une voiture.
+## locked : silhouette grise d'une voiture pas encore mise à neuf.
+static func render(body: String, color: Color, tier: int, scale: float, locked := false) -> Dictionary:
+	if locked:
+		color = LOCKED_BODY
+		tier = 0
+	var key := "%s|%s|%d|%.2f|%s" % [body, color.to_html(false), tier, scale, locked]
 	if _cache.has(key):
 		return _cache[key]
 	var r := _Renderer.new()
+	r.locked = locked
 	var out := r.run(BODIES.get(body, BODIES["compacte"]), color, tier, scale)
 	out["texture"] = ImageTexture.create_from_image(out["image"])
 	_cache[key] = out
 	return out
 
 
+## Échelle qui fait tenir une carrosserie dans une boîte (largeur, hauteur).
+static func fit_scale(body: String, box: Vector2, lo := 1.0, hi := 3.2) -> float:
+	var ref: Dictionary = render(body, LOCKED_BODY, 0, 1.0, true)
+	var sz := Vector2(ref["texture"].get_size())
+	return clampf(snappedf(minf(box.x / sz.x, box.y / sz.y), 0.1), lo, hi)
+
+
 class _Renderer:
+	var locked := false
 	var faces: Array[Dictionary] = []
 	var e := EYE.normalized()
 	var light := LIGHT.normalized()
@@ -103,15 +185,16 @@ class _Renderer:
 
 	## Extrude un profil (x, y) fermé, sens trigonométrique, entre z0 et z1.
 	## Renvoie l'indice de la face du flanc visible (z = z0) et des arêtes.
-	func extrude(profile: Array, z0: float, z1: float, mat: int, edge_mats := {}) -> Dictionary:
+	func extrude(profile: Array, z0: float, z1: float, mat: int, edge_mats := {}, side_mat := -1) -> Dictionary:
 		var near: Array = []
 		var far: Array = []
 		for p in profile:
 			near.append(Vector3(p.x, p.y, z0))
 			far.append(Vector3(p.x, p.y, z1))
-		var side := face(near, Vector3(0, 0, -1), mat)
+		var sm := mat if side_mat < 0 else side_mat
+		var side := face(near, Vector3(0, 0, -1), sm)
 		far.reverse()
-		face(far, Vector3(0, 0, 1), mat)
+		face(far, Vector3(0, 0, 1), sm)
 		var edges: Array[int] = []
 		for i in profile.size():
 			var a: Vector2 = profile[i]
@@ -182,63 +265,140 @@ class _Renderer:
 		prof.append(Vector2(length - 1.0, yb + low))
 		for p in d["upper"]:
 			prof.append(Vector2(p[0], p[1] + low))
-		var body := extrude(prof, 0.0, width, Mat.BODY)
-		var side: int = body["side"]
-		var upper_start := 2 + axles.size() * 15
-		var bumper: int = body["edges"][upper_start]
-		var nose: int = body["edges"][upper_start + 1]
+		# Caisse en deux étages : le bas sur toute la largeur, le haut (capot,
+		# ceinture, toit de coffre) un peu plus étroit pour arrondir le volume ;
+		# la marche entre les deux fait la ligne d'épaule.
+		var cut: float = float(d["upper"][1][1]) + low
+		var bev := 0.9
+		var big := 1000.0
+		var below := PackedVector2Array([Vector2(-big, -big), Vector2(big, -big), Vector2(big, cut), Vector2(-big, cut)])
+		var above := PackedVector2Array([Vector2(-big, cut), Vector2(big, cut), Vector2(big, big), Vector2(-big, big)])
+		var sides: Array = []
+		var bumper := -1
+		var nose := -1
+		var bumper_edge: Array = []
+		var nose_edge: Array = []
+		var best_b := -INF
+		var best_n := -INF
+		var tops: Array = []
+		for piece in [[below, 0.0], [above, bev]]:
+			var zi: float = piece[1]
+			for poly in Geometry2D.intersect_polygons(PackedVector2Array(prof), piece[0]):
+				var pts := _ccw(poly)
+				var ex := extrude(pts, zi, width - zi, Mat.BODY)
+				sides.append([ex["side"], zi])
+				for i in pts.size():
+					var fi: int = ex["edges"][i]
+					if fi < 0:
+						continue
+					var n: Vector3 = faces[fi]["n"]
+					var a: Vector2 = pts[i]
+					var b: Vector2 = pts[(i + 1) % pts.size()]
+					var lo_p := a if a.y <= b.y else b
+					var hi_p := b if a.y <= b.y else a
+					var mx := maxf(a.x, b.x)
+					if zi == 0.0 and n.x > 0.9 and mx > best_b:
+						best_b = mx
+						bumper = fi
+						bumper_edge = [lo_p, hi_p]
+					if zi > 0.0 and n.x > 0.2 and n.y > 0.2 and mx > best_n:
+						best_n = mx
+						nose = fi
+						nose_edge = [lo_p, hi_p]
+					if zi > 0.0 and n.y > 0.85:
+						tops.append([fi, a, b])
 
-		# Habitacle, plus étroit que la caisse.
 		var cab: Array = []
 		for p in d["cabin"]:
 			cab.append(Vector2(p[0], p[1] + low))
-		var inset := 2.2
-		var cabin := extrude(cab, inset, width - inset, Mat.GLASS, {2: Mat.BODY})
-		var cside: int = cabin["side"]
-		var shield: int = cabin["edges"][1]
-
-		# Montants et cadre des vitres (couleur caisse) sur le flanc de l'habitacle.
+		var base_r: Vector2 = cab[0]
 		var base_f: Vector2 = cab[1]
 		var top_f: Vector2 = cab[2]
 		var top_r: Vector2 = cab[3]
-		var base_r: Vector2 = cab[4]
-		decal([[base_f.x + 0.3, base_f.y], [top_f.x + 0.3, top_f.y], [top_f.x - 1.6, top_f.y], [base_f.x - 1.6, base_f.y]], inset, Mat.BODY, -1, cside)
-		decal([[top_f.x, top_f.y + 0.3], [top_r.x, top_r.y + 0.3], [top_r.x, top_r.y - 1.0], [top_f.x, top_f.y - 1.0]], inset, Mat.BODY, -1, cside)
-		var bx := lerpf(top_r.x, top_f.x, 0.45)
-		decal([[bx - 0.9, base_f.y - 0.5], [bx + 0.9, base_f.y - 0.5], [bx + 0.9, top_f.y], [bx - 0.9, top_f.y]], inset, Mat.TRIM, 2, cside)
-		var c_w := 3.5 if length > 60 else 2.0
-		decal([[base_r.x - 0.5, base_r.y - 0.5], [base_r.x + c_w, base_r.y - 0.5], [top_r.x + c_w * 0.6, top_r.y], [top_r.x - 0.5, top_r.y + 0.3]], inset, Mat.BODY, -1, cside)
-		decal([[base_r.x, base_f.y - 0.4], [base_f.x, base_f.y - 0.4], [base_f.x, base_f.y + 0.5], [base_r.x, base_f.y + 0.5]], inset, Mat.TRIM, 1, cside)
-
-		# Flanc : ligne d'épaule, bas de caisse, portes, poignées.
 		var belt := base_f.y
-		decal([[3, belt - 1.0], [length - 4, belt - 1.6], [length - 4, belt - 2.3], [3, belt - 1.7]], 0.0, Mat.BODY, 3, side, 0.3)
-		decal([[1.0, yb + low], [length - 1.0, yb + low], [length - 1.0, yb + low + 3.2], [1.0, yb + low + 3.2]], 0.0, Mat.BODY, 1, side, 0.2)
-		decal([[1.5, yb + low + 0.2], [length - 1.5, yb + low + 0.2], [length - 1.5, yb + low + 1.4], [1.5, yb + low + 1.4]], 0.0, Mat.TRIM, 1, side, 0.3)
-		for x in [base_f.x - 1.0, bx, base_r.x + c_w + 1.0]:
-			decal([[x - 0.25, yb + low + 1.6], [x + 0.25, yb + low + 1.6], [x + 0.25, belt - 0.3], [x - 0.25, belt - 0.3]], 0.0, Mat.TRIM, 0, side, 0.4)
-		for x in [bx + 4.0, base_r.x + c_w + 4.5]:
-			if x < base_f.x - 3.0:
-				decal([[x, belt - 3.4], [x + 2.6, belt - 3.4], [x + 2.6, belt - 2.7], [x, belt - 2.7]], 0.0, Mat.TRIM, 3, side, 0.4)
+		var inset := 2.2
+		var is_open: bool = d.get("open", false)
+		var bx := lerpf(top_r.x, top_f.x, 0.45)
+		var c_w := 3.5 if length > 60 else 2.0
+
+		if is_open:
+			# Décapotée : pare-brise seul, sièges et appuie-tête, habitacle sombre.
+			extrude([base_f, base_f + Vector2(1.2, 0), top_f + Vector2(1.2, 0), top_f], inset, width - inset, Mat.GLASS, {2: Mat.BODY})
+			for t in tops:
+				var a: Vector2 = t[1]
+				var b: Vector2 = t[2]
+				var x0 := maxf(minf(a.x, b.x), base_r.x)
+				var x1 := minf(maxf(a.x, b.x), base_f.x)
+				if x1 - x0 > 1.0:
+					decal3(_on_edge_x(a, b, x0, x1, 2.6, width - 2.6), Mat.TRIM, 0, t[0])
+			for sx in d.get("seats", []):
+				for zr in [[5.0, 10.5], [width - 10.5, width - 5.0]]:
+					extrude([Vector2(sx, belt - 1.0), Vector2(sx + 2.8, belt - 1.0), Vector2(sx + 2.6, belt + 4.6), Vector2(sx + 0.4, belt + 4.4)], zr[0], zr[1], Mat.TRIM)
+			bx = lerpf(base_r.x, base_f.x, 0.5)
+		else:
+			# Habitacle, plus étroit que la caisse ; tôlé pour un fourgon.
+			var panel: bool = d.get("panel", false)
+			var cabin := extrude(cab, inset, width - inset, Mat.GLASS, {2: Mat.BODY}, Mat.BODY if panel else Mat.GLASS)
+			var cside: int = cabin["side"]
+			decal([[base_f.x + 0.3, base_f.y], [top_f.x + 0.3, top_f.y], [top_f.x - 1.6, top_f.y], [base_f.x - 1.6, base_f.y]], inset, Mat.BODY, -1, cside)
+			decal([[top_f.x, top_f.y + 0.3], [top_r.x, top_r.y + 0.3], [top_r.x, top_r.y - 1.0], [top_f.x, top_f.y - 1.0]], inset, Mat.BODY, -1, cside)
+			if panel:
+				var pw := base_f.lerp(top_f, 0.5)
+				decal([[base_f.x - 13.0, belt + 1.5], [base_f.x - 0.5, belt + 1.5], [pw.x - 1.0, pw.y], [base_f.x - 13.0, pw.y]], inset, Mat.GLASS, 2, cside)
+				bx = base_f.x - 14.0
+			else:
+				var count: int = d.get("pillars", 1)
+				for k in count:
+					var px := lerpf(top_r.x, top_f.x, 0.45 if count == 1 else 0.22 + 0.5 * k / float(count - 1))
+					decal([[px - 0.9, base_f.y - 0.5], [px + 0.9, base_f.y - 0.5], [px + 0.9, top_f.y], [px - 0.9, top_f.y]], inset, Mat.TRIM, 2, cside)
+				var rb: Vector2 = cab[4]
+				decal([[base_r.x - 0.5, base_r.y - 0.5], [rb.x + c_w, base_r.y - 0.5], [top_r.x + c_w * 0.6, top_r.y], [top_r.x - 0.5, top_r.y + 0.3]], inset, Mat.BODY, -1, cside)
+				decal([[base_r.x, base_f.y - 0.4], [base_f.x, base_f.y - 0.4], [base_f.x, base_f.y + 0.5], [base_r.x, base_f.y + 0.5]], inset, Mat.TRIM, 1, cside)
+
+		# Benne de pick-up : creux sombre sur le dessus.
+		if d.has("bed"):
+			var bed: Array = d["bed"]
+			for t in tops:
+				var a: Vector2 = t[1]
+				var b: Vector2 = t[2]
+				var x0 := maxf(minf(a.x, b.x), float(bed[0]))
+				var x1 := minf(maxf(a.x, b.x), float(bed[1]))
+				if x1 - x0 > 1.0:
+					decal3(_on_edge_x(a, b, x0, x1, 2.4, width - 2.4), Mat.TRIM, 0, t[0])
+
+		# Flancs : bas de caisse sombre, jupe, joints de portes, poignées.
+		for sd in sides:
+			var sf: int = sd[0]
+			var z: float = sd[1]
+			decal([[1.0, yb + low], [length - 1.0, yb + low], [length - 1.0, yb + low + 3.2], [1.0, yb + low + 3.2]], z, Mat.BODY, 1, sf, 0.2)
+			decal([[1.5, yb + low + 0.2], [length - 1.5, yb + low + 0.2], [length - 1.5, yb + low + 1.4], [1.5, yb + low + 1.4]], z, Mat.TRIM, 1, sf, 0.3)
+			decal([[3, belt - 1.0], [length - 4, belt - 1.6], [length - 4, belt - 2.3], [3, belt - 1.7]], z, Mat.BODY, 3, sf, 0.3)
+			for x in [base_f.x - 1.0, bx, base_r.x + c_w + 1.0]:
+				decal([[x - 0.25, yb + low + 1.6], [x + 0.25, yb + low + 1.6], [x + 0.25, belt - 0.3], [x - 0.25, belt - 0.3]], z, Mat.TRIM, 0, sf, 0.4)
+			for x in [bx + 4.0, base_r.x + c_w + 4.5]:
+				if x < base_f.x - 3.0:
+					decal([[x, belt - 3.4], [x + 2.6, belt - 3.4], [x + 2.6, belt - 2.7], [x, belt - 2.7]], z, Mat.TRIM, 3, sf, 0.4)
 
 		# Face avant : calandre, prise d'air, phares.
-		var pb: Array = d["upper"]
-		var b0 := Vector2(pb[0][0], pb[0][1] + low)
-		var b1 := Vector2(pb[1][0], pb[1][1] + low)
-		var n1 := Vector2(pb[2][0], pb[2][1] + low)
 		var gz := width * 0.27
-		decal3(_on_edge(b0, b1, 0.35, 0.92, gz, width - gz), Mat.TRIM, 1, bumper)
-		for k in range(0, 4):
-			var t0 := 0.40 + k * 0.14
-			decal3(_on_edge(b0, b1, t0, t0 + 0.05, gz + 0.5, width - gz - 0.5), Mat.TRIM, 0, bumper, 0.6)
-		decal3(_on_edge(b0, b1, 0.02, 0.28, 3.0, width - 3.0), Mat.TRIM, 0, bumper)
-		for zr in [[1.6, gz - 0.6], [width - gz + 0.6, width - 1.6]]:
-			decal3(_on_edge(b1, n1, 0.05, 0.85, zr[0], zr[1]), Mat.LAMP, 1, nose)
-			decal3(_on_edge(b1, n1, 0.25, 0.65, zr[0] + 0.8, zr[1] - 0.8), Mat.LAMP, 3, nose, 0.6)
-		decal3(_on_edge(b1, n1, 0.30, 0.70, gz + 1.0, width - gz - 1.0), Mat.TRIM, 2, nose)
+		if bumper >= 0:
+			var b0: Vector2 = bumper_edge[0]
+			var b1: Vector2 = bumper_edge[1]
+			decal3(_on_edge(b0, b1, 0.35, 0.92, gz, width - gz), Mat.TRIM, 1, bumper)
+			for k in range(0, 4):
+				var t0 := 0.40 + k * 0.14
+				decal3(_on_edge(b0, b1, t0, t0 + 0.05, gz + 0.5, width - gz - 0.5), Mat.TRIM, 0, bumper, 0.6)
+			decal3(_on_edge(b0, b1, 0.02, 0.28, 3.0, width - 3.0), Mat.TRIM, 0, bumper)
+		if nose >= 0:
+			var n0: Vector2 = nose_edge[0]
+			var n1: Vector2 = nose_edge[1]
+			for zr in [[1.6 + bev, gz - 0.6], [width - gz + 0.6, width - 1.6 - bev]]:
+				decal3(_on_edge(n0, n1, 0.05, 0.85, zr[0], zr[1]), Mat.LAMP, 1, nose)
+				decal3(_on_edge(n0, n1, 0.25, 0.65, zr[0] + 0.8, zr[1] - 0.8), Mat.LAMP, 3, nose, 0.6)
+			decal3(_on_edge(n0, n1, 0.30, 0.70, gz + 1.0, width - gz - 1.0), Mat.TRIM, 2, nose)
 
 		# Aileron au 2e palier.
-		if tier >= 2:
+		if tier >= 2 and d.get("wing", true):
 			var top_rear := 0.0
 			for p in d["upper"]:
 				if float(p[0]) < 10.0:
@@ -278,6 +438,25 @@ class _Renderer:
 				disc(c, r * 0.16, z0, Mat.RIM, 4, tire, 0.6, 8)
 
 		return {"length": length, "width": width, "exhaust": Vector3(0.0, yb + low + 1.0, 5.0)}
+
+	## Polygone remis dans le sens trigonométrique (y vers le haut).
+	func _ccw(poly: PackedVector2Array) -> Array:
+		var area := 0.0
+		for i in poly.size():
+			var a := poly[i]
+			var b := poly[(i + 1) % poly.size()]
+			area += a.x * b.y - b.x * a.y
+		var out: Array = Array(poly)
+		if area < 0.0:
+			out.reverse()
+		return out
+
+	## Bande d'une face d'arête, entre deux abscisses x.
+	func _on_edge_x(a: Vector2, b: Vector2, x0: float, x1: float, z0: float, z1: float) -> Array:
+		var dx := b.x - a.x
+		var t0 := (x0 - a.x) / dx
+		var t1 := (x1 - a.x) / dx
+		return _on_edge(a, b, minf(t0, t1), maxf(t0, t1), z0, z1)
 
 	func _on_edge(a: Vector2, b: Vector2, t0: float, t1: float, z0: float, z1: float) -> Array:
 		var p0 := a.lerp(b, t0)
@@ -451,6 +630,15 @@ class _Renderer:
 				arr.append(Color(hex))
 			ramps[k] = arr
 		ramps[Mat.BODY] = CarRendererRamp.body(color)
+		if locked:
+			var glass: Array[Color] = []
+			for hex in LOCKED_GLASS:
+				glass.append(Color(hex))
+			ramps[Mat.GLASS] = glass
+			var rim: Array[Color] = []
+			for hex in RIM_DARK:
+				rim.append(Color(hex))
+			ramps[Mat.RIM] = rim
 		# Jantes : argent, puis noires sport au 1er palier, dorées au 3e.
 		if tier >= 1:
 			var rim: Array[Color] = []

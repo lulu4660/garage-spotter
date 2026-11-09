@@ -7,11 +7,12 @@ const Economy = preload("res://scripts/economy.gd")
 const Catalog = preload("res://scripts/catalog.gd")
 const GameState = preload("res://scripts/game_state.gd")
 const GarageScene = preload("res://scripts/garage_scene.gd")
+const RevealView = preload("res://scripts/reveal_view.gd")
 const TutorialOverlay = preload("res://scripts/tutorial_overlay.gd")
 const PixelUI = preload("res://scripts/pixel_ui.gd")
 const CarRenderer = preload("res://scripts/car_renderer.gd")
 
-const VERSION := "0.7 · phase 0"
+const VERSION := "0.8 · phase 0"
 const AUTOSAVE_EVERY := 10.0
 const CARD_COUNT := 3
 
@@ -25,6 +26,8 @@ var _reset_armed := false
 
 var stage_label: Label
 var collection_label: Label
+var tokens_label: Label
+var _day_check_left := 0.0
 var coins_label: Label
 var income_label: Label
 var rush_bar: ProgressBar
@@ -79,6 +82,7 @@ func _ready() -> void:
 	else:
 		state.new_game()
 
+	state.daily_refresh(Time.get_date_string_from_system())
 	_build_ui()
 	state.changed.connect(_on_state_changed)
 	_on_state_changed()
@@ -107,6 +111,10 @@ func _process(delta: float) -> void:
 	if _refresh_left <= 0.0:
 		_refresh_left = 0.1
 		_refresh_live()
+	_day_check_left -= delta
+	if _day_check_left <= 0.0:
+		_day_check_left = 5.0
+		state.daily_refresh(Time.get_date_string_from_system())
 	_autosave_left -= delta
 	if _autosave_left <= 0.0:
 		_autosave_left = AUTOSAVE_EVERY
@@ -185,6 +193,9 @@ func _build_top_bar(parent: Control) -> void:
 	var col := _chip("album")
 	collection_label = col[1]
 	h.add_child(col[0])
+	var tok := _chip("restore", PixelUI.GOLD)
+	tokens_label = tok[1]
+	h.add_child(tok[0])
 	var spacer := Control.new()
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	h.add_child(spacer)
@@ -377,8 +388,8 @@ func _on_state_changed() -> void:
 func _refresh_car() -> void:
 	var car := state.get_car(selected_uid)
 	if car.is_empty():
-		car_name.text = "Garage vide"
-		car_rarity.text = "Expose une voiture depuis l'Album"
+		car_name.text = "GARAGE VIDE"
+		car_rarity.text = "Mets une voiture à neuf pour l'exposer"
 		car_slot_label.text = ""
 		return
 	var model := Catalog.get_car(String(car["model"]))
@@ -399,6 +410,7 @@ func _refresh_live() -> void:
 		stage_text += " %d%%" % int(clampf(state.coins / state.stage_price(), 0.0, 1.0) * 100.0)
 	stage_label.text = stage_text
 	collection_label.text = "%d" % state.unique_models()
+	tokens_label.text = "illimité" if state.test_mode else "%d" % state.restore_tokens
 	if state.rush_left > 0.0:
 		rush_bar.value = state.rush_left / Economy.RUSH_DURATION
 		rush_label.text = "RUSH x2  %ds" % int(ceil(state.rush_left))
@@ -479,8 +491,8 @@ func _on_tile_pressed(i: int) -> void:
 		return
 	var t: Array = _tile_targets[i]
 	if state.buy_part(int(t[1]), int(t[2]), 1):
-		if state.tutorial_step == 1:
-			state.tutorial_step = 2
+		if state.tutorial_step == 2:
+			state.tutorial_step = 3
 		var level := int(state.get_car(int(t[1]))["levels"][int(t[2])])
 		if level in Economy.MILESTONES:
 			_toast("Palier %d : revenus x2 !" % level)
@@ -494,12 +506,16 @@ func _on_buy_slot() -> void:
 
 
 func _on_spot_pressed() -> void:
-	if state.tutorial_step == 3:
-		state.tutorial_step = 4
+	if state.tutorial_step == 6:
+		state.tutorial_step = GameState.TUTORIAL_DONE
 	if state.spot_cooldown > 0.0:
 		_toast("Prochain spot dans %s" % _clock(state.spot_cooldown))
 		return
-	_show_spot(state.spot_simulated())
+	var result := state.spot_simulated()
+	if result["is_new"]:
+		_show_restore(int(result["uid"]), {"gain": result["gain"], "title": "Nouveau spot !"})
+	else:
+		_show_spot(result)
 
 
 func _float_text(text: String, at: Vector2) -> void:
@@ -719,24 +735,39 @@ func _show_garage() -> void:
 
 func _show_album() -> void:
 	var content := _open_popup("album", "Album · %d modèles" % state.unique_models())
-	content.add_child(PixelUI.label("Expose tes prises pour qu'elles rapportent (%d / %d places)." % [state.exhibited.size(), state.slots], "small", PixelUI.MUTED, true))
+	var intro := "Expose tes prises pour qu'elles rapportent (%d / %d places)." % [state.exhibited.size(), state.slots]
+	if state.locked_count() > 0:
+		intro += " %d voiture(s) à mettre à neuf ; il te reste %d mise(s) à neuf aujourd'hui." % [state.locked_count(), state.restore_tokens]
+	content.add_child(PixelUI.label(intro, "small", PixelUI.MUTED, true))
 	var sorted := state.cars.duplicate()
-	sorted.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return state.car_income(a) > state.car_income(b))
+	sorted.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		if a["restored"] != b["restored"]:
+			return not a["restored"]
+		return state.car_income(a) > state.car_income(b))
 	var mult := Economy.collection_multiplier(state.unique_models())
 	for car in sorted:
 		var uid := int(car["uid"])
 		var model := Catalog.get_car(String(car["model"]))
 		var rarity := int(model["rarity"])
+		var locked := not bool(car["restored"])
 		var row := _row(content, "", PixelUI.RARITY[rarity].to_html(false))
 		var thumb := TextureRect.new()
-		thumb.texture = CarRenderer.render(String(model["body"]), Color(String(car["color"])), state.visual_tier(car), 0.8)["texture"]
+		thumb.texture = CarRenderer.render(String(model["body"]), Color(String(car["color"])), state.visual_tier(car), 0.8, locked)["texture"]
 		thumb.stretch_mode = TextureRect.STRETCH_KEEP_CENTERED
 		thumb.custom_minimum_size = Vector2(76, 0)
 		row.add_child(thumb)
-		_texts(row, Catalog.display_name(String(car["model"])), "%s  ·  %s /s" % [Economy.RARITY_NAMES[rarity].to_upper(), Economy.format_number(state.car_income(car) * mult)], PixelUI.RARITY[rarity].lightened(0.35))
+		if locked:
+			_texts(row, "? ? ?", "%s  ·  %s" % [Economy.RARITY_NAMES[rarity].to_upper(), String(CarRenderer.BODY_NAMES.get(String(model["body"]), "")).to_upper()], PixelUI.MUTED)
+		else:
+			_texts(row, Catalog.display_name(String(car["model"])), "%s  ·  %s /s" % [Economy.RARITY_NAMES[rarity].to_upper(), Economy.format_number(state.car_income(car) * mult)], PixelUI.RARITY[rarity].lightened(0.35))
 		var b := Button.new()
 		b.custom_minimum_size = Vector2(64, 24)
-		if state.is_exhibited(uid):
+		if locked:
+			b.text = "À neuf"
+			b.icon = PixelUI.icon("restore")
+			PixelUI.style_button(b, "orange", Color.WHITE)
+			b.pressed.connect(func() -> void: _show_restore(uid))
+		elif state.is_exhibited(uid):
 			b.text = "Retirer"
 			PixelUI.style_button(b)
 			b.pressed.connect(func() -> void: state.withdraw(uid))
@@ -749,51 +780,135 @@ func _show_album() -> void:
 	content.add_child(PixelUI.label("%d modèles sur %d au catalogue de la phase 0." % [state.unique_models(), Catalog.CARS.size()], "small", PixelUI.MUTED, true))
 
 
+## Spot d'un modèle déjà dans la collection : seulement le gain immédiat.
 func _show_spot(result: Dictionary) -> void:
 	var model := Catalog.get_car(String(result["model"]))
 	var rarity := int(result["rarity"])
-	var vb := _open_popup("spot", "Nouveau spot !" if result["is_new"] else "Spot !", true)
-	var preview := GarageScene.new()
-	preview.show_backdrop = false
-	preview.interactive = false
-	preview.custom_minimum_size = Vector2(0, 120)
+	var vb := _open_popup("spot", "Spot !", true)
+	var preview := RevealView.new()
+	preview.custom_minimum_size = Vector2(0, 110)
 	vb.add_child(preview)
-	preview.configure(Color(String(model["color"])), String(model["body"]), rarity, 0, 0)
+	preview.setup(String(model["body"]), Color(String(model["color"])), rarity, true)
 	var name_label := PixelUI.label(Catalog.display_name(String(result["model"])).to_upper(), "main", PixelUI.RARITY[rarity].lightened(0.35))
 	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vb.add_child(name_label)
-	var chip_row := CenterContainer.new()
-	vb.add_child(chip_row)
-	var chip := PanelContainer.new()
-	chip.add_theme_stylebox_override("panel", PixelUI.frame("chip", 6, 1, PixelUI.RARITY[rarity].to_html(false)))
-	chip.add_child(PixelUI.label(Economy.RARITY_NAMES[rarity].to_upper(), "small", PixelUI.RARITY[rarity].lightened(0.35)))
-	chip_row.add_child(chip)
-	var gain_row := CenterContainer.new()
-	vb.add_child(gain_row)
-	var gh := _hbox(3)
-	gain_row.add_child(gh)
-	gh.add_child(PixelUI.icon_rect("coin"))
-	gh.add_child(PixelUI.label("+%s" % Economy.format_number(float(result["gain"])), "main", PixelUI.GOLD))
-	var what := "Déjà dans ta collection."
-	if result["is_new"]:
-		what = "Exposée au garage." if result["placed"] else "Garage plein : elle t'attend dans l'Album."
-	var w := PixelUI.label(what, "small", PixelUI.TEXT, true)
+	vb.add_child(_gain_row(float(result["gain"])))
+	var w := PixelUI.label("Déjà dans ta collection.", "small", PixelUI.TEXT, true)
 	w.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vb.add_child(w)
-	var note := PixelUI.label("Phase 0 : spot simulé, la caméra arrive en phase 1.", "small", PixelUI.MUTED, true)
-	note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	vb.add_child(note)
 	var ok := Button.new()
 	ok.text = "SUPER !"
 	ok.custom_minimum_size = Vector2(0, 28)
 	PixelUI.style_button(ok, "orange", Color.WHITE)
 	ok.pressed.connect(_close_popup)
 	vb.add_child(ok)
-	popup_root.modulate.a = 0.0
-	create_tween().tween_property(popup_root, "modulate:a", 1.0, 0.25)
-	if result["is_new"] and result["placed"]:
-		selected_uid = int(result["uid"])
-		_refresh_car()
+
+
+func _gain_row(gain: float) -> CenterContainer:
+	var row := CenterContainer.new()
+	var h := _hbox(3)
+	row.add_child(h)
+	h.add_child(PixelUI.icon_rect("coin"))
+	h.add_child(PixelUI.label("+%s" % Economy.format_number(gain), "main", PixelUI.GOLD))
+	return row
+
+
+## Voiture bloquée : silhouette grise, puis mise à neuf animée.
+## info : title, gain (spot), tutorial (voiture offerte pendant le tutoriel).
+func _show_restore(uid: int, info := {}) -> void:
+	var car := state.get_car(uid)
+	if car.is_empty():
+		return
+	var model := Catalog.get_car(String(car["model"]))
+	var rarity := int(model["rarity"])
+	var body := String(model["body"])
+	var gift := state.restore_is_free(uid)
+	var vb := _open_popup("restore", String(info.get("title", "Cadeau !" if gift else "Mise à neuf")), true)
+	var reveal := RevealView.new()
+	reveal.custom_minimum_size = Vector2(0, 116)
+	vb.add_child(reveal)
+	reveal.setup(body, Color(String(car["color"])), rarity, false)
+	var name_label := PixelUI.label("? ? ?", "main", PixelUI.MUTED)
+	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vb.add_child(name_label)
+	var chip_row := CenterContainer.new()
+	vb.add_child(chip_row)
+	var chip := PanelContainer.new()
+	chip.add_theme_stylebox_override("panel", PixelUI.frame("chip", 6, 1, PixelUI.RARITY[rarity].to_html(false)))
+	chip.add_child(PixelUI.label("%s  ·  %s" % [Economy.RARITY_NAMES[rarity].to_upper(), String(CarRenderer.BODY_NAMES.get(body, body)).to_upper()], "small", PixelUI.RARITY[rarity].lightened(0.35)))
+	chip_row.add_child(chip)
+	if info.has("gain"):
+		vb.add_child(_gain_row(float(info["gain"])))
+	var text := PixelUI.label("", "small", PixelUI.TEXT, true)
+	text.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vb.add_child(text)
+	var actions := VBoxContainer.new()
+	actions.add_theme_constant_override("separation", 3)
+	vb.add_child(actions)
+
+	var finish := func() -> void:
+		name_label.text = Catalog.display_name(String(car["model"])).to_upper()
+		name_label.add_theme_color_override("font_color", PixelUI.RARITY[rarity].lightened(0.35))
+		text.text = "Exposée au garage !" if state.is_exhibited(uid) else "Garage plein : elle t'attend dans l'Album."
+		for c in actions.get_children():
+			c.queue_free()
+		var ok := Button.new()
+		ok.text = "SUPER !"
+		ok.custom_minimum_size = Vector2(0, 28)
+		PixelUI.style_button(ok, "orange", Color.WHITE)
+		ok.pressed.connect(_close_popup)
+		actions.add_child(ok)
+		if state.is_exhibited(uid):
+			selected_uid = uid
+			_refresh_car()
+
+	var do_restore := func() -> void:
+		if not state.restore(uid):
+			return
+		if gift and state.tutorial_step in GameState.TUTORIAL_GIFTS:
+			state.tutorial_step += 1
+		for c in actions.get_children():
+			c.queue_free()
+		text.text = "Mise à neuf en cours…"
+		reveal.finished.connect(finish, CONNECT_ONE_SHOT)
+		reveal.play()
+
+	if gift:
+		text.text = "Mets-la à neuf pour la découvrir : c'est offert."
+	elif state.can_restore(uid):
+		text.text = "Mets-la à neuf pour la découvrir et la faire rouler. Il t'en reste %s aujourd'hui." % ("autant que tu veux" if state.test_mode else str(state.restore_tokens))
+	else:
+		text.text = "Plus de mise à neuf aujourd'hui. Elle t'attend dans l'Album, ou gagne-en une :"
+	var main_btn := Button.new()
+	main_btn.text = "METTRE À NEUF" + ("  ·  GRATUIT" if gift else "")
+	main_btn.icon = PixelUI.icon("restore")
+	main_btn.custom_minimum_size = Vector2(0, 30)
+	PixelUI.style_button(main_btn, "orange", Color.WHITE)
+	main_btn.disabled = not state.can_restore(uid)
+	main_btn.pressed.connect(do_restore)
+	actions.add_child(main_btn)
+	if not state.can_restore(uid):
+		var ad := Button.new()
+		ad.text = "Regarder une pub : +1" if state.can_watch_ad() else "Plus de pub aujourd'hui"
+		ad.icon = PixelUI.icon("ad")
+		PixelUI.style_button(ad)
+		ad.disabled = not state.can_watch_ad()
+		ad.pressed.connect(func() -> void:
+			if state.reward_ad():
+				_toast("Pub simulée : +1 mise à neuf")
+				_show_restore(uid, info))
+		actions.add_child(ad)
+		var carats := Button.new()
+		carats.text = "Payer en Carats (bientôt)"
+		PixelUI.style_button(carats)
+		carats.disabled = true
+		actions.add_child(carats)
+	if not gift:
+		var later := Button.new()
+		later.text = "Plus tard"
+		PixelUI.style_button(later)
+		later.pressed.connect(_close_popup)
+		actions.add_child(later)
 
 
 func _show_offline(offline: Dictionary) -> void:
@@ -858,21 +973,34 @@ func _show_menu() -> void:
 
 # --- Tutoriel -----------------------------------------------------------
 
+## Tutoriel : trois voitures offertes (étapes 0, 3, 5), mises à neuf gratuitement,
+## entrecoupées des gestes de base (toucher, améliorer, revenus, SPOT).
 func _update_tutorial() -> void:
-	if popup_kind != "" or state.tutorial_step >= 4:
+	var step := state.tutorial_step
+	if step >= GameState.TUTORIAL_DONE:
 		tutorial.hide()
 		return
-	match state.tutorial_step:
-		0:
+	if step in GameState.TUTORIAL_GIFTS:
+		tutorial.hide()
+		if popup_kind == "":
+			var uid := state.ensure_gift(step)
+			var titles := {0: "Ta première voiture", 3: "Un pote te prête sa voiture", 5: "Dernier cadeau"}
+			_show_restore(uid, {"title": titles[step]})
+		return
+	if popup_kind != "":
+		tutorial.hide()
+		return
+	match step:
+		1:
 			_set_tutorial(scene, "Touche ta voiture pour gagner tes premières pièces.", false)
 			if not _tile_targets.is_empty() and state.can_afford(float(_tile_targets[0][0])):
-				state.tutorial_step = 1
-		1:
-			_set_tutorial(cards[0]["button"], "Achète une amélioration : ta voiture rapportera plus.", false)
+				state.tutorial_step = 2
 		2:
+			_set_tutorial(cards[0]["button"], "Achète une amélioration : ta voiture rapportera plus.", false)
+		4:
 			_set_tutorial(income_label, "Ton garage gagne de l'argent chaque seconde, même jeu fermé.", true)
-		3:
-			_set_tutorial(spot_button, "Tu croises une belle voiture ? Photographie-la avec SPOT.", true)
+		6:
+			_set_tutorial(spot_button, "Croise une voiture, prends-la en photo avec SPOT, puis mets-la à neuf. Tu as %d mises à neuf par jour." % Economy.RESTORE_FREE_PER_DAY, true)
 
 
 func _set_tutorial(target: Control, text: String, with_ok: bool) -> void:
@@ -897,7 +1025,14 @@ func _take_screenshot(path: String, popup: String) -> void:
 		"album":
 			_show_album()
 		"spot":
-			_show_spot({"model": "huracon", "rarity": 3, "is_new": true, "placed": false, "uid": -1, "gain": 51234.0})
+			_show_restore(state.cars[-1]["uid"], {"title": "Nouveau spot !", "gain": 51234.0})
+		"reveal":
+			_show_restore(state.cars[-1]["uid"], {"title": "Nouveau spot !", "gain": 51234.0})
+			var buttons := popup_root.find_children("*", "Button", true, false)
+			for b in buttons:
+				if (b as Button).text.begins_with("METTRE"):
+					(b as Button).pressed.emit()
+			await get_tree().create_timer(2.0).timeout
 		"offline":
 			_show_offline({"seconds": 4380.0, "gain": 98765.0})
 		"menu":

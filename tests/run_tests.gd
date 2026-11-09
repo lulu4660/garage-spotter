@@ -101,12 +101,18 @@ func _test_format() -> void:
 func _test_state_flow() -> void:
 	var s := GameState.new()
 	s.new_game()
-	check(s.cars.size() == 1 and s.exhibited.size() == 1, "on démarre avec une épave exposée")
-	check(near(s.base_income(), 1.0 * 1.01), "épave commune + 1 modèle = 1,01/s")
-	check(not s.buy_part(s.exhibited[0], 0, 1), "pas d'achat sans pièces")
+	check(s.cars.size() == 1 and s.exhibited.is_empty(), "on démarre avec une épave offerte, pas encore exposée")
+	var first: int = s.cars[0]["uid"]
+	check(not s.is_restored(first) and s.restore_is_free(first), "l'épave est bloquée et sa mise à neuf est offerte")
+	check(s.unique_models() == 0 and s.base_income() == 0.0, "une voiture bloquée ne rapporte rien et ne compte pas en collection")
+	check(not s.expose(first), "on ne peut pas exposer une voiture bloquée")
 	s.coins = 1000.0
-	check(s.buy_part(s.exhibited[0], 0, 1) and near(s.coins, 980.0), "achat d'un niveau à 20")
-	check(not s.buy_part(s.exhibited[0], 5, 1), "pièce verrouillée au box")
+	check(not s.buy_part(first, 0, 1), "pas de pièce sur une voiture bloquée")
+	var tokens := s.restore_tokens
+	check(s.restore(first) and s.restore_tokens == tokens and s.is_exhibited(first), "mise à neuf offerte : quota intact, voiture exposée")
+	check(near(s.base_income(), 1.0 * 1.01), "épave commune + 1 modèle = 1,01/s")
+	check(s.buy_part(first, 0, 1) and near(s.coins, 980.0), "achat d'un niveau à 20")
+	check(not s.buy_part(first, 5, 1), "pièce verrouillée au box")
 	s.coins = 0.0
 	s.tick(10.0)
 	check(near(s.coins, s.base_income() * 10.0), "revenu idle sur 10 s")
@@ -117,13 +123,37 @@ func _test_state_flow() -> void:
 	s.coins = 1e9
 	check(s.buy_stage() and s.stage == 1 and s.unlocked_parts() == 6, "construire l'atelier")
 	check(s.buy_slot() and s.slots == 4, "acheter une 4e place")
+
+	# Spot : la voiture arrive grise ; seul le gain immédiat compte.
 	var before := s.cars.size()
+	var income_before := s.base_income()
 	var r := s.spot_simulated()
 	check(float(r["gain"]) > 0.0 and s.spot_cooldown > 0.0, "spot simulé : gain immédiat et délai")
 	check(s.cars.size() == before + (1 if r["is_new"] else 0), "un nouveau modèle s'ajoute, un doublon non")
+	if r["is_new"]:
+		var uid := int(r["uid"])
+		check(not s.is_restored(uid) and near(s.base_income(), income_before), "nouvelle voiture bloquée : pas de revenu, pas de bonus de collection")
+		check(s.restore(uid) and s.restore_tokens == tokens - 1, "mise à neuf : une du quota en moins")
+
+	# Quota du jour et pubs.
+	s.restore_tokens = 0
+	var extra := s.add_car("transiz")
+	check(not s.restore(extra), "plus de quota : pas de mise à neuf")
+	check(s.reward_ad() and s.restore_tokens == 1 and s.restore(extra), "une pub rapporte une mise à neuf")
+	for i in Economy.RESTORE_ADS_PER_DAY:
+		s.reward_ad()
+	check(not s.can_watch_ad(), "pubs plafonnées par jour")
+	s.token_day = "2026-01-01"
+	s.restore_tokens = 1
+	s.daily_refresh("2026-01-02")
+	check(s.restore_tokens == Economy.RESTORE_FREE_PER_DAY and s.can_watch_ad(), "nouveau jour : quota et pubs reviennent")
+	s.restore_tokens = 8
+	s.daily_refresh("2026-01-03")
+	check(s.restore_tokens == 8, "les mises à neuf gagnées en plus sont gardées")
+
 	s.test_mode = true
 	var c := s.coins
-	check(s.buy_part(s.exhibited[0], 1, -1) and s.coins == c, "mode test : achats gratuits")
+	check(s.buy_part(first, 1, -1) and s.coins == c, "mode test : achats gratuits")
 
 
 func _test_save_roundtrip() -> void:
@@ -142,3 +172,14 @@ func _test_save_roundtrip() -> void:
 	check(from_disk.load_game() == 2000.0 and from_disk.cars.size() == s.cars.size(), "sauvegarde sur disque relue")
 	s.delete_save()
 	check(GameState.new().load_game() == -1.0, "sauvegarde effacée")
+	var locked_saved := 0
+	for car in copy.cars:
+		if not car["restored"]:
+			locked_saved += 1
+	check(locked_saved == 2, "les voitures bloquées restent bloquées après rechargement")
+	var old := d.duplicate(true)
+	old["version"] = 1
+	for car in old["cars"]:
+		car.erase("restored")
+	var migrated := GameState.new()
+	check(migrated.from_dict(old) >= 0.0 and migrated.locked_count() == 0, "ancienne sauvegarde : toutes les voitures restent utilisables")

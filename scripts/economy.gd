@@ -41,6 +41,12 @@ const OFFLINE_FULL_SECONDS := 7200.0
 const OFFLINE_MAX_SECONDS := 28800.0
 const OFFLINE_LATE_RATE := 0.5
 
+## Mise à neuf : chaque voiture spottée arrive grise (bloquée) ; la mettre à
+## neuf génère son pixel art et la rend utilisable. Quota quotidien gratuit,
+## plus des mises à neuf gagnées en regardant une pub (ou en Carats, plus tard).
+const RESTORE_FREE_PER_DAY := 5
+const RESTORE_ADS_PER_DAY := 5
+
 const TAP_FRACTION := 0.05
 const TAP_MIN := 1.0
 const RUSH_TAPS := 20.0

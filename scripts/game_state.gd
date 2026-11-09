@@ -7,9 +7,13 @@ const Economy = preload("res://scripts/economy.gd")
 const Catalog = preload("res://scripts/catalog.gd")
 
 const SAVE_PATH := "user://save.json"
-const SAVE_VERSION := 1
+const SAVE_VERSION := 2
 ## Phase 0 : pas encore de caméra, on simule un spot toutes les 3 minutes.
 const SPOT_COOLDOWN := 180.0
+## Voitures offertes pendant le tutoriel (étape → modèle), toutes bloquées et
+## mises à neuf gratuitement : deux communes puis une peu commune.
+const TUTORIAL_GIFTS := {0: ["clia5", "8a5a3c"], 3: ["yariz", ""], 5: ["gulf_gti", ""]}
+const TUTORIAL_DONE := 7
 
 signal changed
 
@@ -25,6 +29,9 @@ var test_mode := false
 var spot_cooldown := 0.0
 var rush_charge := 0.0
 var rush_left := 0.0
+var restore_tokens := Economy.RESTORE_FREE_PER_DAY
+var ads_today := 0
+var token_day := ""
 var rng := RandomNumberGenerator.new()
 
 
@@ -41,15 +48,17 @@ func new_game() -> void:
 	spot_cooldown = 0.0
 	rush_charge = 0.0
 	rush_left = 0.0
-	# GDD onboarding : on arrive dans le box avec une épave offerte.
-	var uid := add_car("clia5", "8a5a3c")
-	exhibited.append(uid)
+	restore_tokens = Economy.RESTORE_FREE_PER_DAY
+	ads_today = 0
+	token_day = ""
+	# Le tutoriel offre la première voiture (une épave) dès l'arrivée.
+	ensure_gift(0)
 	changed.emit()
 
 
 # --- Voitures -----------------------------------------------------------
 
-func add_car(model_id: String, color := "") -> int:
+func add_car(model_id: String, color := "", restored := false) -> int:
 	var model := Catalog.get_car(model_id)
 	var levels: Array[int] = []
 	levels.resize(Economy.PARTS.size())
@@ -59,6 +68,8 @@ func add_car(model_id: String, color := "") -> int:
 		"model": model_id,
 		"color": color if color != "" else String(model["color"]),
 		"levels": levels,
+		"restored": restored,
+		"gift": false,
 	}
 	next_uid += 1
 	cars.append(car)
@@ -83,11 +94,26 @@ func owns_model(model_id: String) -> bool:
 	return false
 
 
+## Modèles uniques mis à neuf : eux seuls comptent pour le bonus de collection.
 func unique_models() -> int:
 	var seen := {}
 	for c in cars:
-		seen[c["model"]] = true
+		if c["restored"]:
+			seen[c["model"]] = true
 	return seen.size()
+
+
+func is_restored(uid: int) -> bool:
+	var car := get_car(uid)
+	return not car.is_empty() and bool(car["restored"])
+
+
+func locked_count() -> int:
+	var n := 0
+	for c in cars:
+		if not c["restored"]:
+			n += 1
+	return n
 
 
 func unlocked_parts() -> int:
@@ -178,7 +204,7 @@ func part_quote(uid: int, part: int, count: int) -> Dictionary:
 
 func buy_part(uid: int, part: int, count: int) -> bool:
 	var car := get_car(uid)
-	if car.is_empty() or part >= unlocked_parts():
+	if car.is_empty() or not car["restored"] or part >= unlocked_parts():
 		return false
 	var q := part_quote(uid, part, count)
 	var n := int(q["count"])
@@ -224,7 +250,7 @@ func buy_stage() -> bool:
 # --- Garage et album ----------------------------------------------------
 
 func expose(uid: int) -> bool:
-	if exhibited.has(uid) or exhibited.size() >= slots:
+	if not is_restored(uid) or exhibited.has(uid) or exhibited.size() >= slots:
 		return false
 	exhibited.append(uid)
 	changed.emit()
@@ -244,7 +270,7 @@ func _fill_free_slots() -> void:
 		if exhibited.size() >= slots:
 			return
 		var uid := int(c["uid"])
-		if not exhibited.has(uid):
+		if c["restored"] and not exhibited.has(uid):
 			exhibited.append(uid)
 
 
@@ -263,16 +289,79 @@ func spot_simulated() -> Dictionary:
 	coins += gain
 	lifetime += gain
 	var uid := -1
-	var placed := false
 	if is_new:
 		uid = add_car(String(picked["id"]))
-		if exhibited.size() < slots:
-			exhibited.append(uid)
-			placed = true
 	if not test_mode:
 		spot_cooldown = SPOT_COOLDOWN
 	changed.emit()
-	return {"model": picked["id"], "rarity": rarity, "is_new": is_new, "placed": placed, "uid": uid, "gain": gain}
+	return {"model": picked["id"], "rarity": rarity, "is_new": is_new, "uid": uid, "gain": gain}
+
+
+# --- Mise à neuf --------------------------------------------------------
+
+## Nouveau jour (date locale « AAAA-MM-JJ ») : le quota gratuit revient.
+## Les mises à neuf gagnées en plus et pas encore utilisées sont gardées.
+func daily_refresh(today: String) -> void:
+	if today == token_day:
+		return
+	token_day = today
+	restore_tokens = maxi(restore_tokens, Economy.RESTORE_FREE_PER_DAY)
+	ads_today = 0
+	changed.emit()
+
+
+func restore_is_free(uid: int) -> bool:
+	return bool(get_car(uid).get("gift", false))
+
+
+func can_restore(uid: int) -> bool:
+	var car := get_car(uid)
+	if car.is_empty() or car["restored"]:
+		return false
+	return test_mode or restore_is_free(uid) or restore_tokens > 0
+
+
+## Met une voiture à neuf : elle devient utilisable et s'expose si une place est libre.
+func restore(uid: int) -> bool:
+	if not can_restore(uid):
+		return false
+	var car := get_car(uid)
+	if not test_mode and not restore_is_free(uid):
+		restore_tokens -= 1
+	car["restored"] = true
+	if exhibited.size() < slots:
+		exhibited.append(uid)
+	changed.emit()
+	return true
+
+
+func can_watch_ad() -> bool:
+	return ads_today < Economy.RESTORE_ADS_PER_DAY
+
+
+## Phase 0 : la pub est simulée ; elle rapporte une mise à neuf.
+func reward_ad() -> bool:
+	if not can_watch_ad():
+		return false
+	ads_today += 1
+	restore_tokens += 1
+	changed.emit()
+	return true
+
+
+## Voiture offerte à cette étape du tutoriel (créée au besoin) ; -1 s'il n'y en a pas.
+func ensure_gift(step: int) -> int:
+	if not TUTORIAL_GIFTS.has(step):
+		return -1
+	for c in cars:
+		if int(c.get("gift_step", -1)) == step:
+			return int(c["uid"])
+	var spec: Array = TUTORIAL_GIFTS[step]
+	var uid := add_car(String(spec[0]), String(spec[1]))
+	var car := get_car(uid)
+	car["gift"] = true
+	car["gift_step"] = step
+	return uid
 
 
 # --- Hors ligne ---------------------------------------------------------
@@ -305,12 +394,16 @@ func to_dict(now: float) -> Dictionary:
 		"tutorial_step": tutorial_step,
 		"test_mode": test_mode,
 		"spot_cooldown": spot_cooldown,
+		"restore_tokens": restore_tokens,
+		"ads_today": ads_today,
+		"token_day": token_day,
 	}
 
 
 ## Charge un dictionnaire de sauvegarde ; renvoie l'heure de sauvegarde, ou -1 si invalide.
 func from_dict(d: Dictionary) -> float:
-	if int(d.get("version", 0)) != SAVE_VERSION:
+	# Version 1 (avant la mise à neuf) : toutes les voitures étaient utilisables.
+	if not int(d.get("version", 0)) in [1, SAVE_VERSION]:
 		return -1.0
 	coins = float(d.get("coins", 0.0))
 	lifetime = float(d.get("lifetime", 0.0))
@@ -320,7 +413,10 @@ func from_dict(d: Dictionary) -> float:
 		for l in raw.get("levels", []):
 			levels.append(int(l))
 		levels.resize(Economy.PARTS.size())
-		cars.append({"uid": int(raw["uid"]), "model": String(raw["model"]), "color": String(raw["color"]), "levels": levels})
+		cars.append({
+			"uid": int(raw["uid"]), "model": String(raw["model"]), "color": String(raw["color"]), "levels": levels,
+			"restored": bool(raw.get("restored", true)), "gift": bool(raw.get("gift", false)), "gift_step": int(raw.get("gift_step", -1)),
+		})
 	exhibited.clear()
 	for u in d.get("exhibited", []):
 		exhibited.append(int(u))
@@ -330,6 +426,9 @@ func from_dict(d: Dictionary) -> float:
 	tutorial_step = int(d.get("tutorial_step", 0))
 	test_mode = bool(d.get("test_mode", false))
 	spot_cooldown = float(d.get("spot_cooldown", 0.0))
+	restore_tokens = int(d.get("restore_tokens", Economy.RESTORE_FREE_PER_DAY))
+	ads_today = int(d.get("ads_today", 0))
+	token_day = String(d.get("token_day", ""))
 	changed.emit()
 	return float(d.get("saved_at", 0.0))
 
@@ -358,16 +457,19 @@ func delete_save() -> void:
 ## Partie de démonstration pour les captures d'écran.
 func setup_demo() -> void:
 	new_game()
+	cars[0]["restored"] = true
 	stage = 2
 	slots = 5
-	tutorial_step = 99
+	tutorial_step = TUTORIAL_DONE
 	cars[0]["levels"] = _levels([52, 41, 30, 26, 18, 12, 4, 0, 0, 0])
 	for spec in [["gtx_r35", [27, 25, 14, 9, 3, 0, 0, 0, 0, 0]], ["gulf_gti", [30, 12, 10, 5, 0, 0, 0, 0, 0, 0]], ["huracon", [8, 6, 2, 0, 0, 0, 0, 0, 0, 0]], ["peujo280", [25, 20, 16, 2, 0, 0, 0, 0, 0, 0]]]:
-		var uid := add_car(String(spec[0]))
+		var uid := add_car(String(spec[0]), "", true)
 		get_car(uid)["levels"] = _levels(spec[1])
-		exhibited.append(uid)
-	add_car("yariz")
-	add_car("m3_e64")
+	add_car("yariz", "", true)
+	add_car("m3_e64", "", true)
+	add_car("hilox")
+	add_car("transiz")
+	restore_tokens = 3
 	exhibited.assign([cars[2]["uid"], cars[0]["uid"], cars[1]["uid"], cars[3]["uid"], cars[4]["uid"]])
 	coins = 1.84e6
 	changed.emit()

@@ -13,27 +13,50 @@ func check(cond: bool, what: String) -> void:
 		print("ok  " + what)
 
 
+func _press(main: Control, prefix: String) -> void:
+	for b in main.popup_root.find_children("*", "Button", true, false):
+		if (b as Button).text.begins_with(prefix) and not (b as Button).disabled:
+			(b as Button).pressed.emit()
+			return
+	check(false, "bouton « %s » introuvable" % prefix)
+
+
 func _init() -> void:
 	var main: Control = load("res://scenes/main.tscn").instantiate()
 	root.add_child(main)
 	await create_timer(0.2).timeout
 	var s = main.state
-	check(s.tutorial_step == 0 and main.tutorial.visible, "tuto : étape 1 visible (toucher la voiture)")
+	check(s.tutorial_step == 0 and main.popup_kind == "restore", "tuto : la première voiture offerte s'ouvre en mise à neuf")
+	var tokens: int = s.restore_tokens
+	_press(main, "METTRE")
+	await create_timer(1.8).timeout
+	check(s.tutorial_step == 1 and s.exhibited.size() == 1 and s.restore_tokens == tokens, "épave mise à neuf gratuitement et exposée")
+	main._close_popup()
+	await create_timer(0.2).timeout
+	check(main.tutorial.visible, "tuto : le doigt montre la voiture")
 
 	for i in 25:
 		main._on_car_tapped(Vector2(100, 100))
 	await create_timer(0.3).timeout
-	check(s.tutorial_step == 1, "assez de taps pour une amélioration : le doigt passe à la tuile")
-	check(not main.cards[0]["button"].disabled, "la première tuile est achetable")
-
-	var lvl_before: int = s.get_car(s.exhibited[0])["levels"].reduce(func(a, b): return a + b, 0)
+	check(s.tutorial_step == 2, "assez de taps pour une amélioration : le doigt passe à la carte")
 	main._on_tile_pressed(0)
-	var lvl_after: int = s.get_car(s.exhibited[0])["levels"].reduce(func(a, b): return a + b, 0)
-	check(lvl_after == lvl_before + 1 and s.tutorial_step == 2, "achat par la tuile, tuto suivant")
+	check(s.tutorial_step == 3, "achat par la carte, tuto suivant")
+	await create_timer(0.2).timeout
+	check(main.popup_kind == "restore", "2e voiture offerte")
+	_press(main, "METTRE")
+	await create_timer(1.8).timeout
+	main._close_popup()
+	check(s.tutorial_step == 4, "2e voiture mise à neuf")
 	main._on_tutorial_ok()
-	check(s.tutorial_step == 3, "tuto : revenus hors ligne expliqués")
+	await create_timer(0.2).timeout
+	check(s.tutorial_step == 5 and main.popup_kind == "restore", "3e voiture offerte (peu commune)")
+	_press(main, "METTRE")
+	await create_timer(1.8).timeout
+	main._close_popup()
+	check(s.tutorial_step == 6 and s.exhibited.size() == 3 and s.restore_tokens == tokens, "3 voitures exposées, quota intact")
 	main._on_spot_pressed()
-	check(s.tutorial_step == 4 and main.popup_kind == "spot", "SPOT ouvre la carte de spot et finit le tuto")
+	check(s.tutorial_step == 7, "SPOT termine le tuto")
+	check(main.popup_kind in ["restore", "spot"], "le spot ouvre la mise à neuf (ou le doublon)")
 	main._close_popup()
 	await process_frame
 	main._on_spot_pressed()

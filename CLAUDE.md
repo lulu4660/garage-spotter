@@ -21,6 +21,7 @@ Le document de game design (GDD) fait foi : https://claude.ai/artifact/WgkvZZaTt
 ## Priorité actuelle
 Phase 0 : un garage idle jouable sans photo, pour savoir si la boucle est amusante avant de payer le moindre appel d'IA.
 Le spot est simulé (un toutes les 3 min) ; tout est local, sans serveur.
+Mise à neuf : chaque voiture spottée arrive grise (silhouette de sa carrosserie) et ne sert à rien tant qu'elle n'est pas mise à neuf (seul le gain immédiat du spot compte). Mettre à neuf = générer son pixel art (phase 1 ; en phase 0, rendu de `car_renderer.gd`). 5 par jour gratuites, + pubs (5/jour), Carats plus tard. Le tuto offre 3 voitures (2 communes, 1 peu commune) mises à neuf gratuitement.
 
 ## Code
 - `scripts/economy.gd` : toutes les formules, fonctions pures (à porter dans les Edge Functions en phase 1). Ne mets aucune règle d'économie ailleurs.
@@ -29,6 +30,8 @@ Le spot est simulé (un toutes les 3 min) ; tout est local, sans serveur.
 - `scripts/pixel_ui.gd` : couleurs, polices, cadres biseautés (9-slice générés), icônes pixel 16×16.
 - `scripts/car_renderer.gd` : voitures modélisées en volume puis rendues en pixel art, vue 3/4 avant fixe, mises en cache.
 - `scripts/garage_scene.gd` : décor du garage par étape, néons, sol mouillé, plateau, effets au toucher.
+- `scripts/reveal_view.gd` : voiture sur plateau, bloquée ou révélée ; animation de mise à neuf (shader).
+- Carrosseries (16) : citadine, compacte, berline, break, 4x4, suv, monospace, combi, fourgon, coupe, fastback, sportback, cabriolet, roadster, pickup, supercar.
 - Les nombres sont des `float` (double) : le plus gros revenu possible reste très loin de 1e308.
 - Pas de `class_name` : les scripts se chargent avec `preload`.
 
