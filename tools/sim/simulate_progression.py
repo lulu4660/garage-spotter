@@ -782,6 +782,7 @@ def section_base(runs):
             print(f"| {name} | – | – |")
             return
         print(f"| {name} | {f(med(xs2))} | {f(pct(xs2, 0.1))} – {f(pct(xs2, 0.9))} |")
+    row("1er point de réputation disponible (heure de jeu)", [x["first_point"] for x in base], fh)
     row("1er prestige (heure de jeu)", fp, fh)
     row("Prestiges sur 70 j", [x["n_p"] for x in base])
     row("Réputation à vie, j70", [x["rep"] for x in base])
@@ -994,39 +995,39 @@ def section_proposal(runs, nosys_by_profile):
     return out
 
 
-def season2(key, runs, cfg, keep_rep=True):
+def _s2(args):
     """Saison 2 : niveaux, places, étape et pièces remis à zéro, collection gardée.
-    keep_rep : réputation et arbre gardés (sinon remis à zéro). Jours pour retrouver
-    le revenu record de fin de S1."""
-    days = []
-    for r in range(runs):
-        seed = 1000 + r
-        g, daily = run(key, seed, cfg)
-        target = daily[-1]["record"]
-        g.coins = 0.0
-        g.run_earnings = 0.0
-        g.stage = 0
-        g.slots = START_SLOTS
-        for c in g.cars:
-            c.reset()
-        if not keep_rep:
-            g.rep = g.rep_total = 0
-            g.skills = set()
-            g.claimed = set()
-            g.lstats = {}
-        else:
-            fx = g.fx()
-            g.stage = min(int(fx["start_stage"]), 3)
-            g.slots = START_SLOTS + int(fx["start_slots"])
-            g.coins = fx["start_coins"]
-        g.invalidate()
-        g.exhibited = sorted([c for c in g.cars if c.restored], key=lambda c: -c.b)[:g.slots]
-        g.last_prestige = DAYS * 24.0
-        g.tokens = g.free_per_day
-        g.street.rng = g.rng = random.Random(seed + 7777)
-        _, d2 = run(key, seed, cfg, days=40, game=g, t0=DAYS * 24.0)
-        days.append(next((row["day"] for row in d2 if row["record"] >= target), float("inf")))
-    return days
+    keep_rep : réputation et arbre gardés (sinon remis à zéro, succès compris).
+    Renvoie le nombre de jours pour retrouver le revenu record de fin de S1."""
+    key, seed, cfg, keep_rep = args
+    g, daily = run(key, seed, cfg)
+    target = daily[-1]["record"]
+    g.coins = 0.0
+    g.run_earnings = 0.0
+    g.stage = 0
+    g.slots = START_SLOTS
+    for c in g.cars:
+        c.reset()
+    if not keep_rep:
+        g.rep = g.rep_total = 0
+        g.skills = set()
+        g.claimed = set()
+        g.lstats = {}
+    g.invalidate()
+    fx = g.fx()
+    g.stage = min(int(fx["start_stage"]), 3)
+    g.slots = START_SLOTS + int(fx["start_slots"])
+    g.coins = fx["start_coins"]
+    g.exhibited = sorted([c for c in g.cars if c.restored], key=lambda c: -c.b)[:g.slots]
+    g.last_prestige = DAYS * 24.0
+    g.tokens = g.free_per_day
+    g.street.rng = g.rng = random.Random(seed + 7777)
+    _, d2 = run(key, seed, cfg, days=40, game=g, t0=DAYS * 24.0)
+    return next((row["day"] for row in d2 if row["record"] >= target), float("inf"))
+
+
+def season2(key, runs, cfg, keep_rep=True):
+    return pmap(_s2, [(key, 1000 + r, cfg, keep_rep) for r in range(runs)])
 
 
 def section_s2(runs):
@@ -1046,7 +1047,12 @@ def main():
     ap.add_argument("--quick", action="store_true", help="moins de tirages pour les variantes")
     ap.add_argument("--only", default="", help="sections séparées par des virgules : base,profils,sensib,variantes,proposition,s2")
     ap.add_argument("--csv", default="")
+    ap.add_argument("--jobs", type=int, default=os.cpu_count() or 1, help="processus en parallèle")
     a = ap.parse_args()
+    global POOL
+    if a.jobs > 1:
+        import multiprocessing
+        POOL = multiprocessing.Pool(a.jobs)
     issues = check_sources()
     if issues:
         print("ATTENTION : valeurs différentes du code du jeu : " + ", ".join(issues) + "\n")
