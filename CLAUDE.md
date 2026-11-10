@@ -6,7 +6,7 @@ Le document de game design (GDD) fait foi : https://claude.ai/artifact/WgkvZZaTt
 ## Stack
 - Appli : Godot 4 (GDScript), 2D uniquement. Dev sur PC Windows, test sur iPhone via l'export web, App Store plus tard depuis un Mac.
 - Serveur : Supabase (Auth, Postgres + RLS, Storage, Edge Functions).
-- IA : API de vision pour la reconnaissance ; pixel art de la mise à neuf via un Worker Cloudflare, modèle recommandé FLUX.2 [klein] 4B (part de la photo, ≈ 0,00035 $ l'image, voir `docs/choix-modele-image.md`).
+- IA : reconnaissance par Gemini 3.1 Flash-Lite (≈ 0,0006 $ la photo) ; photo de référence du modèle exact prise sur Wikipédia (gratuit) ; pixel art par FLUX.2 [klein] 4B (gratuit/≈ 0,0004 $) avec référence + planche de style + photo du joueur, consigne « sans logo » (plaque sans importance). Un sprite par modèle, mis en cache, recoloré (`generate_cars.recolor`). Voir `docs/choix-modele-image.md` et `tools/ai/spot_photo.py`.
 - Pubs : AdMob. Achats : RevenueCat.
 
 ## Règles non négociables
@@ -43,8 +43,14 @@ Mise à neuf : chaque voiture spottée arrive grise (silhouette de sa carrosseri
 - Pour un objet pixel : positions et tailles en pixels entiers, filtre « nearest », jamais d'agrandissement non entier. Les effets doux passent par `fx.gd` (shaders, `soft_dot`, couche additive).
 - Polices : Garage Jersey en 19 (texte) ou 38 (gros chiffres), Micro 5 en 11 (petits textes). Aucune autre taille.
 - Couleurs depuis `pixel_ui.gd` ; contour sombre d'1 px sur les sprites ; lumière venant du haut.
-- Aucune image générée par IA dans le dépôt pour l'instant ; aucune marque réelle (logo, calandre reconnaissable).
+- Images générées par IA : seulement les sprites de voitures (`assets/cars/`), produits par `tools/ai/generate_cars.py` (FLUX.2 [klein] 4B sur Cloudflare Workers AI, licence Apache 2.0). Aucune marque réelle (logo, badge, texte, plaque) : relire chaque nouveau sprite.
 - `tools/car_sheet.gd` produit une planche de toutes les carrosseries pour relire le rendu des voitures.
+
+## Sprites de voitures générés (mise à neuf)
+- Une voiture mise à neuf s'affiche avec son sprite généré `assets/cars/<id>.png` (~168 px, + `_s` vignette, `_n` reliefs pour l'éclairage, `.json` points d'ancrage) ; sans sprite, on retombe sur `car_renderer.gd`. Les silhouettes grises (voitures bloquées) restent celles de `car_renderer.gd`.
+- Générer : `CF_ACCOUNT_ID=... GODOT=... python3 tools/ai/generate_cars.py [ids] [--force] [--only-process]`. Le script rend la carrosserie (guide d'angle et de couleur), envoie aussi `tools/ai/style_sheet.png` comme référence de style, puis nettoie en vrai pixel art (détourage, grille nette, palette 48 couleurs, contour 1 px). Les voitures claires sont générées sur fond vert pour un détourage propre.
+- Le jeton Cloudflare n'est jamais dans le dépôt ; ≈ 37 Neurons par voiture (10 000 gratuits par jour). Le filtre de Cloudflare bloque parfois une image à tort : le script réessaie avec une autre graine.
+- Phase 1 : la même consigne partira de la photo du joueur (image 0) via un Worker.
 
 ## Version web
 - `export_presets.cfg` : préréglage « Web » sans threads (Safari iPhone, hébergement simple). Export : `godot --headless --path . --export-release "Web" build/web/index.html`.

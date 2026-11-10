@@ -20,3 +20,6 @@ screenshots/
 
 # Python
 __pycache__/
+
+# Images brutes de génération
+tools/ai/out/
