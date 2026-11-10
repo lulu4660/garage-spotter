@@ -49,16 +49,33 @@ const BUILDINGS := [
 	{"rect": Rect2(352, 688, 160, 136), "door": Vector2(402, 836)},
 	{"rect": Rect2(365, 288, 262, 132), "door": Vector2(526, 388)},
 ]
-## Chemins des clients jusqu'à la bretelle de l'autoroute, puis l'autoroute vers la droite.
+## Chemins des clients (coordonnées de la map), relevés sur les routes peintes :
+## de la porte du bâtiment jusqu'à la rue entre le showroom et l'atelier...
 const ROUTES := [
-	[Vector2(226, 976), Vector2(268, 956), Vector2(318, 916), Vector2(334, 860), Vector2(343, 792)],
-	[Vector2(548, 858), Vector2(500, 866), Vector2(455, 852), Vector2(402, 838), Vector2(360, 816), Vector2(343, 792)],
-	[Vector2(402, 836), Vector2(360, 816), Vector2(343, 792)],
+	[Vector2(226, 975), Vector2(262, 968), Vector2(300, 945), Vector2(330, 912), Vector2(372, 893), Vector2(430, 866),
+		Vector2(440, 846), Vector2(478, 840), Vector2(494, 822), Vector2(500, 800)],
+	[Vector2(560, 860), Vector2(540, 872), Vector2(512, 866), Vector2(498, 846), Vector2(500, 800)],
+	[Vector2(402, 836), Vector2(440, 846), Vector2(478, 840), Vector2(494, 822), Vector2(500, 800)],
 	[Vector2(526, 388), Vector2(560, 412), Vector2(640, 440), Vector2(700, 462), Vector2(830, 500)],
 ]
-const TO_RAMP := [Vector2(350, 760), Vector2(366, 716), Vector2(420, 698), Vector2(470, 690), Vector2(494, 662),
-	Vector2(510, 630), Vector2(540, 604), Vector2(600, 545), Vector2(628, 514)]
-const HIGHWAY_END := Vector2(900, 378)
+## ... puis cette rue, la bretelle et la voie montante de l'autoroute (sortie à droite).
+const SPINE := [Vector2(500, 778), Vector2(499, 750), Vector2(499, 726), Vector2(506, 700), Vector2(520, 672),
+	Vector2(551, 640), Vector2(582, 600), Vector2(608, 562), Vector2(630, 535), Vector2(660, 500), Vector2(700, 472),
+	Vector2(780, 432)]
+## Point de la bretelle à partir duquel on roule à la vitesse de l'autoroute.
+const FAST_FROM := Vector2(608, 562)
+## Circulation de la ville : autoroute (deux sens), rue derrière les bâtiments, grande rue.
+const TRAFFIC := [
+	{"path": [Vector2(-40, 834), Vector2(780, 408)], "speed": [120.0, 170.0], "weight": 3},
+	{"path": [Vector2(780, 388), Vector2(-40, 814)], "speed": [120.0, 170.0], "weight": 3},
+	{"path": [Vector2(410, 668), Vector2(580, 755), Vector2(760, 845)], "speed": [38.0, 52.0], "weight": 1},
+	{"path": [Vector2(760, 853), Vector2(580, 763), Vector2(410, 676)], "speed": [38.0, 52.0], "weight": 1},
+	{"path": [Vector2(170, 797), Vector2(330, 882), Vector2(440, 940)], "speed": [38.0, 52.0], "weight": 1},
+	{"path": [Vector2(440, 932), Vector2(330, 874), Vector2(170, 789)], "speed": [38.0, 52.0], "weight": 1},
+]
+const TRAFFIC_COLORS := ["c8202a", "2f6fd1", "e8e4dc", "2b2b2e", "8f939b", "e3c84a", "5c5f66", "1f3a5c", "9a6b4f"]
+## Niveaux de zoom : 1 = un pixel de map par pixel du jeu ; 0,5 = toute la largeur de la ville.
+const ZOOMS := [1.0, 0.5]
 
 const SHADER := """
 shader_type canvas_item;
@@ -110,6 +127,14 @@ var stage := 0
 var car_colors: Array[Color] = [Color("c8202a"), Color("2f6fd1"), Color("e3c84a"), Color("e8e4dc"), Color("4a4d52")]
 
 var _map: TextureRect
+## Tout ce qui est en coordonnées de la map (agrandi ou réduit avec le zoom).
+var _world: Control
+var _zoom := 1.0
+var _zoom_target := 1.0
+var _zoom_button: Button
+var _touches := {}
+var _pinch_from := 0.0
+var _traffic_left := 0.0
 var _mat: ShaderMaterial
 ## Copie de la map limitée aux bâtiments d'avant-plan, dessinée par-dessus les voitures.
 var _front: TextureRect
@@ -159,7 +184,11 @@ func _ready() -> void:
 			if int(l[2]) >= 10:
 				_lamps.append(l)
 	_map.material = _mat
-	add_child(_map)
+	_world = Control.new()
+	_world.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_world.size = _map.size
+	add_child(_world)
+	_world.add_child(_map)
 	_cars_layer = Control.new()
 	_cars_layer.draw.connect(_draw_cars)
 	var csh := Shader.new()
@@ -186,12 +215,13 @@ func _ready() -> void:
 	_glow.draw.connect(_draw_glow)
 	_rain_layer = Control.new()
 	_rain_layer.draw.connect(_draw_rain)
-	for c: Control in [_shadows, _cars_layer, _glow, _rain_layer]:
+	for c: Control in [_shadows, _cars_layer, _front, _glow]:
 		c.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		c.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		add_child(c)
-		if c == _cars_layer:
-			add_child(_front)
+		c.size = _map.size
+		_world.add_child(c)
+	_rain_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_rain_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	add_child(_rain_layer)
 	for i in BUILDINGS.size():
 		var tag := PanelContainer.new()
 		tag.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -199,6 +229,16 @@ func _ready() -> void:
 		tag.add_child(l)
 		add_child(tag)
 		_tags.append(tag)
+	# Bouton de zoom, en haut à droite de la ville.
+	_zoom_button = Button.new()
+	_zoom_button.text = "-"
+	_zoom_button.custom_minimum_size = Vector2(24, 22)
+	PixelUI.style_button(_zoom_button)
+	_zoom_button.pressed.connect(func() -> void: set_zoom(ZOOMS[(ZOOMS.find(_zoom_target) + 1) % ZOOMS.size()]))
+	add_child(_zoom_button)
+	# La ville est déjà animée quand on arrive : quelques voitures en route.
+	for i in 8:
+		_spawn_traffic(_rng.randf())
 	for i in 90:
 		_rain.append({"p": Vector2(_rng.randf(), _rng.randf()), "sp": _rng.randf_range(0.9, 1.4), "l": _rng.randf_range(4, 8)})
 	# La taille n'est connue qu'après la mise en page : on recentre à chaque changement.
@@ -210,10 +250,27 @@ func _ready() -> void:
 func set_stage(s: int, instant := false) -> void:
 	stage = clampi(s, 0, BUILDINGS.size() - 1)
 	var b: Rect2 = BUILDINGS[stage]["rect"]
-	_cam_target = _clamp_cam(b.get_center() - Vector2(size.x * 0.5, size.y * 0.55))
+	_cam_target = _clamp_cam(b.get_center() - _view() * Vector2(0.5, 0.55))
 	if instant:
 		_cam = _cam_target
 	_refresh_tags()
+
+
+## Taille de la zone de map visible (en pixels de map).
+func _view() -> Vector2:
+	return size / _zoom
+
+
+func set_zoom(z: float, focus := Vector2(-1, -1)) -> void:
+	z = clampf(z, ZOOMS[ZOOMS.size() - 1], ZOOMS[0])
+	if focus.x < 0.0:
+		focus = size * 0.5
+	var world := _cam + focus / _zoom
+	_zoom = z
+	_zoom_target = z
+	_cam = _clamp_cam(world - focus / _zoom)
+	_cam_target = _cam
+	_zoom_button.text = "-" if _zoom >= 0.99 else "+"
 
 
 ## Un appui sur le bouton : count clients sortent du bâtiment, l'un après l'autre.
@@ -222,10 +279,12 @@ func spawn(count: int) -> void:
 	var path: Array[Vector2] = []
 	for p in route:
 		path.append(p)
+	var fast_from := path.size() - 1
 	if stage < 3:
-		for p in TO_RAMP:
+		for p in SPINE:
+			if p == FAST_FROM:
+				fast_from = path.size()
 			path.append(p)
-		path.append(HIGHWAY_END)
 	# Les voitures sortent l'une après l'autre, à la suite de celles qui attendent déjà.
 	var queued := 0.0
 	for c in _cars:
@@ -235,15 +294,72 @@ func spawn(count: int) -> void:
 			break
 		var lane := Vector2(0, _rng.randi_range(-1, 1))
 		_cars.append({"path": path, "seg": 0, "pos": path[0] + lane, "lane": lane, "delay": queued + 0.32 * (i + 1), "speed": 0.0, "model": _rng.randi() % 2,
-			"color": car_colors[_rng.randi() % car_colors.size()]})
+			"color": car_colors[_rng.randi() % car_colors.size()], "slow": 70.0, "fast": 260.0, "fast_from": fast_from})
+
+
+## Une voiture de la circulation, posée à la fraction start de son trajet.
+func _spawn_traffic(start := 0.0) -> void:
+	var total := 0
+	for t in TRAFFIC:
+		total += int(t["weight"])
+	var pick := _rng.randi() % total
+	var route: Dictionary = TRAFFIC[0]
+	for t in TRAFFIC:
+		pick -= int(t["weight"])
+		if pick < 0:
+			route = t
+			break
+	var path: Array[Vector2] = []
+	for p in route["path"]:
+		path.append(p)
+	var v := _rng.randf_range(route["speed"][0], route["speed"][1])
+	var a: Vector2 = path[0]
+	var b: Vector2 = path[1]
+	var seg := 0
+	var pos := a.lerp(b, start) if path.size() == 2 else a
+	_cars.append({"path": path, "seg": seg, "pos": pos, "lane": Vector2.ZERO, "delay": 0.0, "speed": v, "model": _rng.randi() % 2,
+		"color": Color(TRAFFIC_COLORS[_rng.randi() % TRAFFIC_COLORS.size()]), "slow": v, "fast": v, "fast_from": 0,
+		"traffic": true, "dir": (b - a).normalized()})
 
 
 func _clamp_cam(c: Vector2) -> Vector2:
-	var lim := Vector2(DAY.get_size()) - size
-	return Vector2(clampf(c.x, 0.0, maxf(0.0, lim.x)), clampf(c.y, 0.0, maxf(0.0, lim.y)))
+	var lim := Vector2(DAY.get_size()) - _view()
+	# Plus petite que la vue (dézoomée) : la map est centrée.
+	var x := clampf(c.x, 0.0, lim.x) if lim.x > 0.0 else lim.x * 0.5
+	var y := clampf(c.y, 0.0, lim.y) if lim.y > 0.0 else lim.y * 0.5
+	return Vector2(x, y)
 
 
 func _gui_input(event: InputEvent) -> void:
+	# Pincer à deux doigts : zoom (on garde les deux niveaux, pour des pixels nets).
+	if event is InputEventScreenTouch:
+		if event.pressed:
+			_touches[event.index] = event.position
+		else:
+			_touches.erase(event.index)
+		_pinch_from = _pinch_distance()
+		return
+	if event is InputEventScreenDrag:
+		_touches[event.index] = event.position
+		if _touches.size() >= 2 and _pinch_from > 0.0:
+			var d := _pinch_distance()
+			if d < _pinch_from * 0.75 and _zoom > 0.6:
+				set_zoom(0.5)
+				_pinch_from = d
+			elif d > _pinch_from * 1.33 and _zoom < 0.9:
+				set_zoom(1.0)
+				_pinch_from = d
+			_dragging = false
+			_drag_moved = 99.0
+		return
+	if event is InputEventMagnifyGesture:
+		set_zoom(1.0 if event.factor > 1.0 else 0.5, event.position)
+		accept_event()
+		return
+	if event is InputEventMouseButton and event.pressed and event.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN]:
+		set_zoom(1.0 if event.button_index == MOUSE_BUTTON_WHEEL_UP else 0.5, event.position)
+		accept_event()
+		return
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 		if event.pressed:
 			_dragging = true
@@ -258,13 +374,21 @@ func _gui_input(event: InputEvent) -> void:
 		var d: Vector2 = event.position - _drag_from
 		_drag_from = event.position
 		_drag_moved += d.length()
-		_cam = _clamp_cam(_cam - d)
-		_cam_target = _cam
+		if _touches.size() < 2:
+			_cam = _clamp_cam(_cam - d / _zoom)
+			_cam_target = _cam
 		accept_event()
 
 
+func _pinch_distance() -> float:
+	if _touches.size() < 2:
+		return 0.0
+	var pts: Array = _touches.values()
+	return (pts[0] as Vector2).distance_to(pts[1])
+
+
 func _tap(pos: Vector2) -> void:
-	var p := pos + _cam
+	var p := pos / _zoom + _cam
 	for i in BUILDINGS.size():
 		if (BUILDINGS[i]["rect"] as Rect2).has_point(p) and i <= stage:
 			building_tapped.emit(i)
@@ -303,9 +427,18 @@ func _process(delta: float) -> void:
 	_time += delta
 	if not _dragging:
 		_cam = _cam.lerp(_cam_target, minf(1.0, delta * 4.0))
-	var cam := _cam.round()
-	_map.position = -cam
-	_front.position = -cam
+	_world.scale = Vector2(_zoom, _zoom)
+	_world.position = (-_cam * _zoom).round()
+	_zoom_button.position = Vector2(size.x - _zoom_button.size.x - 4, 4)
+	_traffic_left -= delta
+	if _traffic_left <= 0.0:
+		_traffic_left = _rng.randf_range(0.6, 1.6)
+		var count := 0
+		for c in _cars:
+			if c.get("traffic", false):
+				count += 1
+		if count < 16:
+			_spawn_traffic()
 	var h := _hour()
 	# Nuit de 20 h 30 à 5 h 30, transitions d'une heure et demie à deux heures.
 	_night = 1.0 - clampf((h - 5.5) / 2.0, 0.0, 1.0) + clampf((h - 18.5) / 2.0, 0.0, 1.0)
@@ -349,8 +482,8 @@ func _move_cars(delta: float) -> void:
 			c["delay"] -= delta
 			continue
 		var path: Array = c["path"]
-		var on_highway: bool = c["seg"] >= path.size() - 2 and stage < 3
-		var top := 260.0 if on_highway else 70.0
+		var on_highway: bool = c["seg"] >= int(c["fast_from"])
+		var top: float = c["fast"] if on_highway else c["slow"]
 		c["speed"] = minf(top, float(c["speed"]) + delta * (300.0 if on_highway else 140.0))
 		var step: float = c["speed"] * delta
 		while step > 0.0 and c["seg"] < path.size() - 1:
@@ -382,33 +515,31 @@ func _draw_car(at: Vector2, dir: Vector2, col: Color, model: int) -> void:
 
 ## Ombres douces sous les voitures (couche à part : le shader des voitures ne s'y applique pas).
 func _draw_shadows() -> void:
-	var cam := _cam.round()
 	var dot := Fx.soft_dot()
 	for c in _cars:
 		if c["delay"] > 0.0:
 			continue
-		var p: Vector2 = c["pos"] - cam
+		var p: Vector2 = c["pos"]
 		_shadows.draw_texture_rect(dot, Rect2(p - Vector2(13, 5), Vector2(26, 10)), false, Color(0, 0, 0, 0.45))
 
 
 func _draw_cars() -> void:
-	var cam := _cam.round()
 	var visible: Array = []
 	for c in _cars:
 		if c["delay"] <= 0.0:
 			visible.append(c)
 	visible.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return a["pos"].y < b["pos"].y)
 	for c in visible:
-		_draw_car(c["pos"] - cam, c.get("dir", Vector2(1, -0.5)), c["color"], int(c["model"]))
+		_draw_car(c["pos"], c.get("dir", Vector2(1, -0.5)), c["color"], int(c["model"]))
 
 
 func _draw_glow() -> void:
 	var cam := _cam.round()
 	var dot := Fx.soft_dot()
-	var view := Rect2(Vector2(-40, -40), size + Vector2(80, 80))
+	var view := Rect2(cam - Vector2(40, 40), _view() + Vector2(80, 80))
 	if _lamps_on > 0.0:
 		for l in _lamps:
-			var p := Vector2(l[0], l[1]) - cam
+			var p := Vector2(l[0], l[1])
 			if not view.has_point(p):
 				continue
 			# Même tirage que le shader n'est pas nécessaire : un halo s'allume avec le crépuscule.
@@ -420,7 +551,7 @@ func _draw_glow() -> void:
 		for c in _cars:
 			if c["delay"] > 0.0:
 				continue
-			var p: Vector2 = c["pos"] - cam
+			var p: Vector2 = c["pos"]
 			var dir: Vector2 = c.get("dir", Vector2(1, -0.5))
 			_glow.draw_texture_rect(dot, Rect2(p + dir * 9.0 - Vector2(7, 5), Vector2(14, 10)), false, Color(1.0, 0.92, 0.7, 0.45 * _night))
 
@@ -460,4 +591,4 @@ func _place_tags() -> void:
 		var b: Rect2 = BUILDINGS[i]["rect"]
 		var tag := _tags[i]
 		var bob := roundf(sin(_time * 3.0) * 1.5) if i == stage else 0.0
-		tag.position = (Vector2(b.get_center().x, b.position.y) - cam - Vector2(tag.size.x * 0.5, tag.size.y + 2.0 - bob)).round()
+		tag.position = ((Vector2(b.get_center().x, b.position.y) - cam) * _zoom - Vector2(tag.size.x * 0.5, tag.size.y + 2.0 - bob)).round()

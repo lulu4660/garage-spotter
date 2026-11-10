@@ -1576,6 +1576,12 @@ func _take_screenshot(path: String, popup: String) -> void:
 				_on_deliver()
 				await get_tree().create_timer(0.12).timeout
 			await get_tree().create_timer(1.6).timeout
+		"serve_far":
+			for i in 10:
+				_on_deliver()
+				await get_tree().create_timer(0.12).timeout
+			city.set_zoom(0.5)
+			await get_tree().create_timer(2.6).timeout
 		"atelier":
 			_show_atelier()
 		"garage":

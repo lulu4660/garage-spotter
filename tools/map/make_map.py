@@ -27,7 +27,7 @@ OUT = os.path.join(ROOT, "assets", "map")
 
 # Bâtiments qui cachent les voitures passant derrière eux (polygones en coordonnées de la map).
 FRONT = [
-    [(352, 727), (427, 687), (511, 730), (512, 786), (434, 822), (350, 781)],  # showroom
+    [(352, 727), (427, 687), (496, 722), (496, 792), (434, 822), (350, 781)],  # showroom (la rue à sa droite reste devant)
 ]
 
 
