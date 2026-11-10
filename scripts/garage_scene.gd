@@ -19,6 +19,8 @@ const CITY_FRONT = preload("res://assets/env/city_front.png")
 
 const NEON := Color(1.0, 0.52, 0.18)
 const LAMP := Color(1.0, 0.92, 0.72)
+const SIGN := Color(1.0, 0.24, 0.40)
+const STAGE_SIGNS: Array[String] = ["BOX", "ATELIER", "SHOWROOM", "HANGAR"]
 
 signal tapped(local_pos: Vector2)
 
@@ -46,11 +48,15 @@ var _car_rect: TextureRect
 var _reflect: TextureRect
 var _under: Control
 var _mirror: ColorRect
+var _plat: Control
 var _fog: Control
 var _lights: Control
 var _post: ColorRect
 
 var _shake := 0.0
+var _pulse := 0.0
+var _flash := 0.0
+var _shown_model := ""
 var _flame := 0.0
 var _time := 0.0
 var _puffs: Array[Dictionary] = []
@@ -68,6 +74,7 @@ var _city_light: PointLight2D
 var _plat_light: PointLight2D
 var _sweep_light: PointLight2D
 var _beacon_light: PointLight2D
+var _key_light: PointLight2D
 
 
 func _ready() -> void:
@@ -81,6 +88,9 @@ func _ready() -> void:
 	_under.draw.connect(_draw_under)
 	_mirror = ColorRect.new()
 	_mirror.material = Fx.material("mirror")
+	# Le plateau a sa propre couche, au-dessus du reflet du sol, pour rester net.
+	_plat = Control.new()
+	_plat.draw.connect(_draw_platform)
 	_reflect = TextureRect.new()
 	_reflect.flip_v = true
 	_reflect.material = Fx.material("reflection")
@@ -91,12 +101,12 @@ func _ready() -> void:
 	_lights = Control.new()
 	_lights.material = Fx.additive()
 	_lights.draw.connect(_draw_lights)
-	for c: Control in [_under, _mirror, _reflect, _car_rect, _fog, _lights]:
+	for c: Control in [_under, _mirror, _plat, _reflect, _car_rect, _fog, _lights]:
 		c.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		c.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 		add_child(c)
 	_mirror.visible = show_backdrop
-	for c: Control in [_under, _mirror, _fog, _lights]:
+	for c: Control in [_under, _mirror, _plat, _fog, _lights]:
 		c.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	if show_backdrop:
 		# Nouvelle capture de l'écran : le reflet du sol en a fait une avant la
@@ -113,13 +123,14 @@ func _ready() -> void:
 	light_mask = LIGHT_MASK
 	_car_rect.light_mask = LIGHT_MASK
 	# Un peu d'ombre ambiante sur la voiture : ce sont les lumières qui la révèlent.
-	_car_rect.self_modulate = Color(0.78, 0.76, 0.8)
+	_car_rect.self_modulate = Color(0.86, 0.84, 0.88)
 	for i in 2:
 		_neon_lights.append(_make_light(NEON, 0.95, 60.0))
 	_city_light = _make_light(Color(0.95, 0.4, 0.55), 0.55, 30.0)
 	_plat_light = _make_light(Color.WHITE, 0.22, 24.0)
 	_sweep_light = _make_light(Color(1.0, 0.93, 0.8), 0.0, 22.0)
 	_beacon_light = _make_light(Color(1.0, 0.55, 0.1), 0.0, 25.0)
+	_key_light = _make_light(Color(1.0, 0.95, 0.86), 0.42, 70.0)
 	for i in 40:
 		_dust.append({"p": Vector2(_rng.randf(), _rng.randf()), "v": Vector2(_rng.randf_range(-3, 3), _rng.randf_range(-4, -1)), "s": _rng.randf_range(0.8, 2.2), "ph": _rng.randf() * TAU})
 	for i in 70:
@@ -151,12 +162,22 @@ func configure(color: Color, body: String, rarity_index: int, tier_index: int, s
 	stage = stage_index
 	has_car = true
 	_car_scale = 0.0
+	if model != _shown_model:
+		# Nouvelle voiture sur le plateau : éclair bref et onde de lumière.
+		_shown_model = model
+		_flash = 0.25
+		_pulse = 0.6
 	_layout()
 
 
 func clear_car() -> void:
 	has_car = false
 	_layout()
+
+
+## Onde de lumière sur le plateau (amélioration achetée, nouvelle voiture).
+func pulse() -> void:
+	_pulse = 0.6
 
 
 ## Réaction au toucher : la voiture tremble, fume, étincelle, et crache parfois une flamme.
@@ -184,7 +205,7 @@ func _layout() -> void:
 	var w := size.x
 	var h := size.y
 	_floor_y = floorf(h * (0.60 if show_backdrop else 0.62))
-	_plat_c = Vector2(floorf(w * 0.5), _floor_y + floorf((h - _floor_y) * 0.36))
+	_plat_c = Vector2(floorf(w * 0.5), _floor_y + floorf((h - _floor_y) * (0.30 if show_backdrop else 0.36)))
 	_plat_r = Vector2(floorf(w * (0.42 if show_backdrop else 0.44)), floorf(maxf(10.0, (h - _floor_y) * 0.26)))
 	_compute_room(w)
 	_car_rect.visible = has_car
@@ -232,6 +253,9 @@ func _place_lights() -> void:
 	_plat_light.color = PixelUI.RARITY[rarity]
 	_plat_light.position = _plat_c + Vector2(_plat_r.x * 0.3, -_plat_r.y * 0.5)
 	_plat_light.texture_scale = _plat_r.x * 2.4 / 64.0
+	_key_light.visible = show_backdrop
+	_key_light.position = _plat_c + Vector2(-_plat_r.x * 0.25, -_plat_r.y * 3.4)
+	_key_light.texture_scale = w * 1.1 / 64.0
 	_sweep_light.texture_scale = w * 0.5 / 64.0
 	_beacon_light.texture_scale = w * 0.7 / 64.0
 
@@ -288,12 +312,16 @@ func _compute_room(w: float) -> void:
 func _process(delta: float) -> void:
 	_time += delta
 	_shake = maxf(0.0, _shake - delta)
+	_pulse = maxf(0.0, _pulse - delta)
+	_flash = maxf(0.0, _flash - delta)
 	_flame = maxf(0.0, _flame - delta)
 	if has_car and _car_rect != null:
 		var off := Vector2.ZERO
 		if _shake > 0.0:
 			off = Vector2(_rng.randi_range(-1, 1), _rng.randi_range(-1, 0))
 		_car_rect.position = _car_pos + off
+		var fl := 1.0 + _flash * 5.0
+		_car_rect.modulate = Color(fl, fl, fl)
 	for p in _puffs:
 		p["p"] += p["v"] * delta
 		p["life"] -= delta
@@ -316,6 +344,7 @@ func _process(delta: float) -> void:
 		f["x"] = fposmod(f["x"] + f["v"] * delta, 1.3)
 	queue_redraw()
 	_fog.queue_redraw()
+	_plat.queue_redraw()
 	_lights.queue_redraw()
 	_under.queue_redraw()
 	_animate_lights()
@@ -335,12 +364,16 @@ func _draw() -> void:
 	var h := size.y
 	if show_backdrop:
 		_draw_room(w, _floor_y)
+		# Pluie dans la rue, derrière les ouvertures (donc derrière la voiture).
+		for o in _openings:
+			for r in _rain:
+				var p := Vector2(o.position.x + r["p"].x * o.size.x, o.position.y + r["p"].y * o.size.y)
+				var l: float = r["l"]
+				var e := p + Vector2(-l * 0.25, l)
+				if e.y > o.end.y:
+					continue
+				draw_line(p, e, Color(0.85, 0.8, 0.9, 0.22), 0.5)
 		_draw_floor(w, h)
-	_draw_platform()
-	if has_car:
-		# Ombre douce de contact sous la voiture.
-		var sh := Vector2(_plat_r.x * 1.05, _plat_r.y * 1.1)
-		draw_texture_rect(Fx.soft_dot(), Rect2(_plat_c - sh + Vector2(0, -2), sh * 2.0), false, Color(0, 0, 0, 0.75))
 
 
 func _hour() -> int:
@@ -420,6 +453,28 @@ func _draw_room(w: float, fy: float) -> void:
 		var flick := 0.55 if fmod(_time + n.position.x * 0.01, 5.3) < 0.06 else 1.0
 		_r(n.position.x, n.position.y, n.size.x, n.size.y, NEON.lerp(Color.WHITE, 0.25) * flick)
 		_r(n.position.x + 1, n.position.y, n.size.x - 2, 1, Color(1.0, 0.9, 0.75) * flick)
+	_draw_sign(w)
+
+
+func _sign_flicker() -> float:
+	var t := fmod(_time, 9.0)
+	return 0.35 if (t > 6.0 and t < 6.08) or (t > 6.2 and t < 6.26) else 1.0
+
+
+## Enseigne néon suspendue au plafond : le nom de l'étape.
+func _draw_sign(w: float) -> void:
+	var text: String = STAGE_SIGNS[clampi(stage, 0, STAGE_SIGNS.size() - 1)]
+	var font := PixelUI.font("small")
+	var tw := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, PixelUI.SIZE_SMALL).x
+	var bw := floorf(tw) + 10.0
+	var x := floorf((w - bw) * 0.5)
+	_r(x + 3, 0, 1, 4, Color("3a3942"))
+	_r(x + bw - 4, 0, 1, 4, Color("3a3942"))
+	_r(x, 4, bw, 13, Color("0b0a0e"))
+	_r(x + 1, 5, bw - 2, 11, Color("1a1820"))
+	_r(x + 1, 5, bw - 2, 1, Color("2c2a33"))
+	var f := _sign_flicker()
+	draw_string(font, Vector2(x + 5, 14), text, HORIZONTAL_ALIGNMENT_LEFT, -1, PixelUI.SIZE_SMALL, Color(1.0, 0.86, 0.9) * f)
 
 
 func _draw_box(w: float, fy: float) -> void:
@@ -522,14 +577,20 @@ func _draw_floor(w: float, h: float) -> void:
 	for k in range(-6, 7):
 		var bx := w * 0.5 + k * w * 0.22
 		var a := vp.lerp(Vector2(bx, h), (fy - vp.y) / (h - vp.y))
-		draw_line(a.floor(), Vector2(bx, h).floor(), Color("1f1e25"), 1.0)
-	if stage == 2:
-		var yy := fy + 6.0
-		var step := 4.0
-		while yy < h:
-			draw_line(Vector2(0, floorf(yy)), Vector2(w, floorf(yy)), Color("1c1b22"), 1.0)
-			step += 3.0
-			yy += step
+		draw_line(a.floor(), Vector2(bx, h).floor(), Color("25242c"), 1.0)
+	# Joints des dalles, de plus en plus espacés vers l'avant (perspective).
+	var yy := fy + 5.0
+	var step := 4.0
+	var joint := Color("2a2932") if stage == 2 else Color("201f26")
+	while yy < h:
+		draw_line(Vector2(0, floorf(yy)), Vector2(w, floorf(yy)), joint, 1.0)
+		_r(0, yy + 1, w, 1, Color(0, 0, 0, 0.25))
+		step += 3.0
+		yy += step
+	# Plinthe au pied du mur.
+	if stage != 2:
+		_r(0, fy - 3, w, 3, Color("0c0b0f"))
+		_r(0, fy - 3, w, 1, Color("2c2b33"))
 	# Flaques : reflet du ciel des ouvertures.
 	for o in _openings:
 		var pud := Rect2(o.position.x + o.size.x * 0.1, fy + 4, o.size.x * 0.8, (h - fy) * 0.5)
@@ -565,37 +626,69 @@ func _draw_tool(x: float, y: float, kind: String) -> void:
 		_r(x, y, 9, 5, c)
 
 
+func _ell(c: Vector2, rx: float, ry: float, t: float) -> Vector2:
+	return (c + Vector2(cos(t) * rx, sin(t) * ry)).floor()
+
+
 func _draw_platform() -> void:
-	# Plateau poli : bordure lumineuse à la couleur de la rareté.
+	# Plateau tournant : socle en métal strié, anneau de LED à la couleur de la
+	# rareté, disque central dont les rayons tournent lentement.
 	var c := _plat_c
 	var rx := _plat_r.x
 	var ry := _plat_r.y
 	var glow: Color = PixelUI.RARITY[rarity]
-	var seg := 32
+	var seg := 40
+	var thick := 8.0
 	var top := PackedVector2Array()
 	var side := PackedVector2Array()
 	for k in seg:
-		var t := TAU * k / seg
-		top.append((c + Vector2(cos(t) * rx, sin(t) * ry)).floor())
+		top.append(_ell(c, rx, ry, TAU * k / seg))
 	for k in range(0, seg / 2 + 1):
-		var t := TAU * k / seg
-		side.append((c + Vector2(cos(t) * rx, sin(t) * ry + 5)).floor())
+		side.append(_ell(c, rx, ry, TAU * k / seg) + Vector2(0, thick))
 	for k in range(seg / 2, -1, -1):
-		var t := TAU * k / seg
-		side.append((c + Vector2(cos(t) * rx, sin(t) * ry)).floor())
-	draw_colored_polygon(side, Color("0e0d12"))
-	draw_colored_polygon(top, Color("26252c"))
+		side.append(_ell(c, rx, ry, TAU * k / seg))
+	_plat.draw_colored_polygon(side, Color("09090c"))
+	# Stries verticales du socle, plus claires face à nous.
+	var ribs := int(rx / 3.0)
+	for k in range(1, ribs):
+		var t := PI * k / ribs
+		var p := _ell(c, rx, ry, t)
+		var facing := sin(t)
+		_plat.draw_rect(Rect2(floorf(p.x), floorf(p.y + 2), 1, thick - 3), Color("1c1b22").lerp(Color("4a4954"), facing * facing) if k % 2 == 0 else Color("0e0d12"))
+	_plat.draw_colored_polygon(top, Color("4a4954"))
 	var inner := PackedVector2Array()
 	for k in seg:
-		var t := TAU * k / seg
-		inner.append((c + Vector2(cos(t) * rx * 0.86, sin(t) * ry * 0.82)).floor())
-	draw_colored_polygon(inner, Color("1e1d24"))
+		inner.append(_ell(c, rx * 0.88, ry * 0.86, TAU * k / seg))
+	_plat.draw_colored_polygon(inner, Color("25242c"))
+	# Rayons du disque, en rotation lente.
+	for k in 6:
+		var a := _time * 0.22 + k * PI / 3.0
+		_plat.draw_line(_ell(c, rx * 0.16, ry * 0.16, a), _ell(c, rx * 0.86, ry * 0.84, a), Color("34333d"), 1.0)
+	var ring := PackedVector2Array()
+	for k in seg + 1:
+		ring.append(_ell(c, rx * 0.56, ry * 0.54, TAU * k / seg))
+	_plat.draw_polyline(ring, Color("3a3942"), 1.0)
+	# Bord : liseré clair en haut du socle, trait lumineux à la couleur de la rareté.
 	for k in seg:
 		var t0 := TAU * k / seg
 		var t1 := TAU * (k + 1) / seg
-		var a := (c + Vector2(cos(t0) * rx, sin(t0) * ry)).floor()
-		var b := (c + Vector2(cos(t1) * rx, sin(t1) * ry)).floor()
-		draw_line(a, b, glow if sin(t0) > -0.15 else glow.darkened(0.5), 1.0)
+		var a := _ell(c, rx, ry, t0)
+		var b := _ell(c, rx, ry, t1)
+		if sin(t0) > -0.15:
+			_plat.draw_line(a + Vector2(0, 1), b + Vector2(0, 1), Color("4d4c57"), 1.0)
+		_plat.draw_line(a, b, glow if sin(t0) > -0.15 else glow.darkened(0.55), 1.0)
+	# Anneau de LED : une vague de lumière fait le tour.
+	var n := 30
+	for k in n:
+		var t := TAU * k / n
+		var p := _ell(c, rx * 0.94, ry * 0.92, t)
+		var lit := fposmod(float(k) / n - _time * 0.12, 1.0) < 0.22
+		var front := sin(t) > 0.3
+		_plat.draw_rect(Rect2(floorf(p.x), floorf(p.y), 2 if front else 1, 2 if front else 1), glow.lerp(Color.WHITE, 0.55) if lit else glow.darkened(0.5))
+	if has_car:
+		# Ombre douce de contact sous la voiture.
+		var sh := Vector2(rx * 0.92, ry * 0.95)
+		_plat.draw_texture_rect(Fx.soft_dot(), Rect2(c - sh + Vector2(0, -2), sh * 2.0), false, Color(0, 0, 0, 0.8))
 
 
 # --- Brouillard, fumée, pluie (fondu normal) -----------------------------
@@ -605,21 +698,12 @@ func _draw_fog() -> void:
 	var h := size.y
 	var dot := Fx.soft_dot()
 	if show_backdrop:
-		# Pluie derrière les ouvertures.
-		for o in _openings:
-			for r in _rain:
-				var p := Vector2(o.position.x + r["p"].x * o.size.x, o.position.y + r["p"].y * o.size.y)
-				var l: float = r["l"]
-				var e := p + Vector2(-l * 0.25, l)
-				if e.y > o.end.y:
-					continue
-				_fog.draw_line(p, e, Color(0.85, 0.8, 0.9, 0.22), 0.5)
 		# Nappes de brouillard au ras du sol.
 		for f in _fog_blobs:
 			var cx: float = (f["x"] - 0.15) * w
 			var cy: float = _floor_y + f["y"] * (h - _floor_y)
 			var s: float = f["s"] * w
-			_fog.draw_texture_rect(dot, Rect2(cx - s, cy - s * 0.18, s * 2.0, s * 0.36), false, Color(0.62, 0.45, 0.52, 0.10))
+			_fog.draw_texture_rect(dot, Rect2(cx - s, cy - s * 0.18, s * 2.0, s * 0.36), false, Color(0.62, 0.45, 0.52, 0.07))
 	# Fumée d'échappement.
 	if has_car:
 		var ex: Vector2 = _car_rect.position + Vector2(_car["exhaust"])
@@ -639,6 +723,14 @@ func _draw_under() -> void:
 	var d := Fx.soft_dot()
 	_under.draw_texture_rect(d, Rect2(_plat_c + Vector2(0, 4) - _plat_r * Vector2(1.3, 1.7), _plat_r * Vector2(2.6, 3.4)), false, Color(glow, 0.22 * pulse))
 	_under.draw_texture_rect(d, Rect2(_plat_c - _plat_r * 0.9, _plat_r * 1.8), false, Color(glow, 0.10 * pulse))
+	if show_backdrop:
+		# Flaque de lumière des projecteurs sur le plateau.
+		_under.draw_texture_rect(d, Rect2(_plat_c - _plat_r * Vector2(1.0, 1.2), _plat_r * Vector2(2.0, 2.4)), false, Color(1.0, 0.9, 0.75, 0.10))
+	var leds := 30
+	for k in leds:
+		if fposmod(float(k) / leds - _time * 0.12, 1.0) < 0.22:
+			var p := _plat_c + Vector2(cos(TAU * k / leds) * _plat_r.x * 0.94, sin(TAU * k / leds) * _plat_r.y * 0.92)
+			_under.draw_texture_rect(d, Rect2(p - Vector2(5, 3), Vector2(10, 6)), false, Color(glow, 0.5))
 	if show_backdrop:
 		for n in _neons:
 			# Reflet net du tube sur le sol mouillé.
@@ -674,8 +766,14 @@ func _draw_lights() -> void:
 			# Halo du tube, rayon de lumière vers le sol, reflet sur le sol mouillé.
 			_halo(Vector2(cx, n.position.y + 1), Vector2(n.size.x * 0.75, 10), Color(NEON, 0.55 * flick))
 			_halo(Vector2(cx, n.position.y + 1), Vector2(n.size.x * 0.55, 4), Color(1, 0.85, 0.6, 0.5 * flick))
-			_cone(n.position + Vector2(0, 3), Vector2(n.end.x, n.position.y + 3), Vector2(n.end.x + 22, _floor_y + 12), Vector2(n.position.x - 22, _floor_y + 12), Color(NEON, 0.16 * flick))
+			_cone(n.position + Vector2(0, 3), Vector2(n.end.x, n.position.y + 3), Vector2(n.end.x + 22, _floor_y + 12), Vector2(n.position.x - 22, _floor_y + 12), Color(NEON, 0.10 * flick))
+			# Projecteur : faisceau blanc chaud resserré sur le plateau.
+			_cone(Vector2(cx - 5, n.position.y + 3), Vector2(cx + 5, n.position.y + 3), _plat_c + Vector2(_plat_r.x * 0.75, _plat_r.y * 0.4), _plat_c + Vector2(-_plat_r.x * 0.75, _plat_r.y * 0.4), Color(1.0, 0.93, 0.8, 0.13 * flick))
 			_cone(Vector2(n.position.x + 6, _floor_y + 2), Vector2(n.end.x - 6, _floor_y + 2), Vector2(n.end.x - 14, h), Vector2(n.position.x + 14, h), Color(NEON, 0.12 * flick))
+		# Halo de l'enseigne.
+		var sf := _sign_flicker()
+		_halo(Vector2(w * 0.5, 10), Vector2(34, 11), Color(SIGN, 0.7 * sf))
+		_halo(Vector2(w * 0.5, 10), Vector2(60, 26), Color(SIGN, 0.10 * sf))
 		# Lumière de la ville qui entre par les ouvertures.
 		for o in _openings:
 			var city := Color(0.9, 0.35, 0.5) if _is_night() else Color(0.9, 0.7, 0.6)
@@ -686,6 +784,14 @@ func _draw_lights() -> void:
 			var tw := 0.5 + 0.5 * sin(_time * 2.0 + float(d["ph"]))
 			var s: float = d["s"]
 			_halo(p, Vector2(s, s), Color(1.0, 0.8, 0.55, 0.35 * tw))
+	if _pulse > 0.0:
+		# Onde de lumière qui s'élargit depuis le plateau.
+		var k := 1.0 - _pulse / 0.6
+		var ring := PackedVector2Array()
+		for i in 41:
+			ring.append(_plat_c + Vector2(cos(TAU * i / 40.0) * _plat_r.x, sin(TAU * i / 40.0) * _plat_r.y) * (1.0 + k * 0.45))
+		_lights.draw_polyline(ring, Color(glow.lerp(Color.WHITE, 0.4), (1.0 - k) * 0.9), 2.0)
+		_halo(_plat_c, _plat_r * (1.2 + k * 0.6), Color(glow, (1.0 - k) * 0.35))
 	if not has_car:
 		return
 	# Phares : halo et faisceau vers l'avant-gauche, sur le sol.
