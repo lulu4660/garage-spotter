@@ -134,7 +134,12 @@ static var _cache := {}
 
 ## Renvoie {texture, image, exhaust, anchor, ground} pour une voiture.
 ## locked : silhouette grise d'une voiture pas encore mise à neuf.
-static func render(body: String, color: Color, tier: int, scale: float, locked := false) -> Dictionary:
+static func render(body: String, color: Color, tier: int, scale: float, locked := false, model := "") -> Dictionary:
+	# Voiture mise à neuf : sprite généré (FLUX.2 klein) s'il existe pour ce modèle.
+	if not locked and model != "":
+		var ai := sprite(model, scale >= 1.6)
+		if not ai.is_empty():
+			return ai
 	if locked:
 		color = LOCKED_BODY
 		tier = 0
@@ -145,11 +150,55 @@ static func render(body: String, color: Color, tier: int, scale: float, locked :
 	r.locked = locked
 	var out := r.run(BODIES.get(body, BODIES["compacte"]), color, tier, scale)
 	out["texture"] = ImageTexture.create_from_image(out["image"])
+	out["normal"] = ImageTexture.create_from_image(out["normal_image"])
+	out["specular"] = ImageTexture.create_from_image(out["spec_image"])
 	_cache[key] = out
 	return out
 
 
 ## Échelle qui fait tenir une carrosserie dans une boîte (largeur, hauteur).
+const SPRITE_DIR := "res://assets/cars/"
+
+
+## Sprite généré d'un modèle (grand ou vignette), au même format que render() ;
+## vide s'il n'existe pas.
+static func sprite(model: String, big := true) -> Dictionary:
+	var key := "ai|%s|%s" % [model, big]
+	if _cache.has(key):
+		return _cache[key]
+	var path := SPRITE_DIR + model + ("" if big else "_s") + ".png"
+	if not ResourceLoader.exists(path):
+		return {}
+	var tex: Texture2D = load(path)
+	var info := {"anchor": [tex.get_width() * 0.5, tex.get_height() * 0.88], "ground": tex.get_height() - 2, "exhaust": [tex.get_width() - 10, tex.get_height() - 6], "lamps": []}
+	var meta_path := SPRITE_DIR + model + ".json"
+	if big and FileAccess.file_exists(meta_path):
+		var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(meta_path))
+		if typeof(parsed) == TYPE_DICTIONARY:
+			info = parsed
+	var normal: Texture2D = null
+	if big and ResourceLoader.exists(SPRITE_DIR + model + "_n.png"):
+		normal = load(SPRITE_DIR + model + "_n.png")
+	var spec := Image.create(tex.get_width(), tex.get_height(), false, Image.FORMAT_RGBA8)
+	spec.fill(Color(0.6, 0.6, 0.6, 1.0))
+	var lamps: Array[Vector2] = []
+	for l in info.get("lamps", []):
+		lamps.append(Vector2(l[0], l[1]))
+	var out := {
+		"texture": tex,
+		"image": tex.get_image(),
+		"normal": normal,
+		"specular": ImageTexture.create_from_image(spec),
+		"anchor": Vector2(info["anchor"][0], info["anchor"][1]),
+		"ground": float(info["ground"]),
+		"exhaust": Vector2(info["exhaust"][0], info["exhaust"][1]),
+		"lamps": lamps,
+		"generated": true,
+	}
+	_cache[key] = out
+	return out
+
+
 static func fit_scale(body: String, box: Vector2, lo := 1.0, hi := 3.2) -> float:
 	var ref: Dictionary = render(body, LOCKED_BODY, 0, 1.0, true)
 	var sz := Vector2(ref["texture"].get_size())
@@ -158,6 +207,7 @@ static func fit_scale(body: String, box: Vector2, lo := 1.0, hi := 3.2) -> float
 
 class _Renderer:
 	var locked := false
+	var lamps: Array[Vector3] = []
 	var faces: Array[Dictionary] = []
 	var e := EYE.normalized()
 	var light := LIGHT.normalized()
@@ -392,7 +442,10 @@ class _Renderer:
 		if nose >= 0:
 			var n0: Vector2 = nose_edge[0]
 			var n1: Vector2 = nose_edge[1]
+			lamps.clear()
 			for zr in [[1.6 + bev, gz - 0.6], [width - gz + 0.6, width - 1.6 - bev]]:
+				var mid := n0.lerp(n1, 0.45)
+				lamps.append(Vector3(mid.x, mid.y, (float(zr[0]) + float(zr[1])) * 0.5))
 				decal3(_on_edge(n0, n1, 0.05, 0.85, zr[0], zr[1]), Mat.LAMP, 1, nose)
 				decal3(_on_edge(n0, n1, 0.25, 0.65, zr[0] + 0.8, zr[1] - 0.8), Mat.LAMP, 3, nose, 0.6)
 			decal3(_on_edge(n0, n1, 0.30, 0.70, gz + 1.0, width - gz - 1.0), Mat.TRIM, 2, nose)
@@ -536,11 +589,16 @@ class _Renderer:
 			_fill(proj, i, parent, f["mat"], shade, 0.0)
 
 		var img := _compose(color, tier)
+		var maps := _light_maps()
 		var ex := project(info["exhaust"])
 		# Centre de l'empreinte au sol : c'est ce point qu'on pose au centre du plateau.
 		var an := project(Vector3(length * 0.5, 0.0, width * 0.5))
 		var front := project(Vector3(length, 0.0, 0.0))
-		return {"image": img, "exhaust": Vector2(ex.x, ex.y), "anchor": Vector2(an.x, an.y), "ground": front.y}
+		var lamp_px: Array[Vector2] = []
+		for lp in lamps:
+			var q := project(lp)
+			lamp_px.append(Vector2(q.x, q.y))
+		return {"image": img, "normal_image": maps[0], "spec_image": maps[1], "exhaust": Vector2(ex.x, ex.y), "anchor": Vector2(an.x, an.y), "ground": front.y, "lamps": lamp_px}
 
 	func _shade_for(nrm: Vector3) -> int:
 		var i := nrm.normalized().dot(light)
@@ -617,6 +675,34 @@ class _Renderer:
 							mbuf[idx] = mat
 							sbuf[idx] = shade
 				k2 += 2
+
+	## Cartes pour l'éclairage dynamique : orientation de chaque pixel vue de la
+	## caméra (normal map, format Godot : x à droite, y vers le haut, z vers nous)
+	## et brillance par matière (vitres et peinture brillent, pneus mats).
+	func _light_maps() -> Array[Image]:
+		var nimg := Image.create(w, h, false, Image.FORMAT_RGBA8)
+		var simg := Image.create(w, h, false, Image.FORMAT_RGBA8)
+		nimg.fill(Color(0.5, 0.5, 1.0, 1.0))
+		simg.fill(Color(0, 0, 0, 1))
+		var shine := {Mat.BODY: 0.75, Mat.GLASS: 1.0, Mat.RIM: 0.9, Mat.LAMP: 0.4, Mat.TRIM: 0.25, Mat.TIRE: 0.05, Mat.CALIPER: 0.6}
+		var cache := {}
+		for y in h:
+			for x in w:
+				var idx := y * w + x
+				var m := mbuf[idx]
+				if not _is_car(m):
+					continue
+				var fid := fbuf[idx]
+				if fid < 0:
+					continue
+				if not cache.has(fid):
+					var n: Vector3 = faces[fid]["n"]
+					var sn := Vector3(n.dot(right), n.dot(up), n.dot(e)).normalized()
+					cache[fid] = Color(sn.x * 0.5 + 0.5, sn.y * 0.5 + 0.5, sn.z * 0.5 + 0.5, 1.0)
+				nimg.set_pixel(x, y, cache[fid])
+				var sp: float = shine.get(m, 0.3)
+				simg.set_pixel(x, y, Color(sp, sp, sp, 1.0))
+		return [nimg, simg]
 
 	func _is_car(m: int) -> bool:
 		return m != Mat.NONE and m != Mat.SHADOW

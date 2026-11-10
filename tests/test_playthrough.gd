@@ -83,6 +83,7 @@ func _init() -> void:
 	# Une heure de jeu passif à revenu constant (rush terminé).
 	s.rush_left = 0.0
 	s.rush_charge = 0.0
+	s.staff.clear()  # les mécaniciens achèteraient pendant l'heure
 	var inc: float = s.income()
 	var c0: float = s.coins
 	for i in 360:

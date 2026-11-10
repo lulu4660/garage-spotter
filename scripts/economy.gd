@@ -29,9 +29,9 @@ const PARTS: Array[Dictionary] = [
 
 const STAGES: Array[Dictionary] = [
 	{"name": "Box", "parts": 3, "cost": 0.0},
-	{"name": "Atelier", "parts": 6, "cost": 20000.0},
-	{"name": "Showroom", "parts": 8, "cost": 2.0e6},
-	{"name": "Hangar", "parts": 10, "cost": 2.0e8},
+	{"name": "Atelier", "parts": 6, "cost": 1.0e5},
+	{"name": "Showroom", "parts": 8, "cost": 5.0e7},
+	{"name": "Hangar", "parts": 10, "cost": 5.0e9},
 ]
 
 const START_SLOTS := 3
@@ -120,10 +120,11 @@ static func slot_cost(n: int) -> float:
 
 
 ## 100 % pendant 2 h, puis 50 % jusqu'à 8 h.
-static func offline_gain(income_per_s: float, seconds: float) -> float:
-	var s := clampf(seconds, 0.0, OFFLINE_MAX_SECONDS)
-	var full := minf(s, OFFLINE_FULL_SECONDS)
-	var late := maxf(0.0, s - OFFLINE_FULL_SECONDS)
+## Les durées se règlent avec l'arbre de compétences (full_s, max_s).
+static func offline_gain(income_per_s: float, seconds: float, full_s := OFFLINE_FULL_SECONDS, max_s := OFFLINE_MAX_SECONDS) -> float:
+	var s := clampf(seconds, 0.0, max_s)
+	var full := minf(s, full_s)
+	var late := maxf(0.0, s - full_s)
 	return income_per_s * (full + OFFLINE_LATE_RATE * late)
 
 
