@@ -41,6 +41,10 @@ var income_label: Label
 var rush_bar: SegBar
 var stage_bar: SegBar
 var coin_badge: TextureRect
+var _bg_material: ShaderMaterial
+var _shown_name := ""
+## Captures d'écran : pas d'animation d'entrée.
+var _instant := false
 var rush_label: Label
 var car_name: Label
 var car_rarity: Label
@@ -85,6 +89,7 @@ func _ready() -> void:
 			shot_stage = int(a.get_slice("=", 1))
 	if shot_path != "" or demo or fresh:
 		persist = false
+	_instant = shot_path != ""
 
 	var offline := {}
 	if demo:
@@ -127,6 +132,8 @@ func _fit_window() -> void:
 	var target := Vector2i(int(floor(win.x / k)), int(floor(win.y / k)))
 	if root.content_scale_size != target:
 		root.content_scale_size = target
+	if _bg_material != null:
+		_bg_material.set_shader_parameter("px", k)
 
 
 func _notification(what: int) -> void:
@@ -174,13 +181,10 @@ func _build_ui() -> void:
 	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(bg)
-	# Trame discrète en diagonale, pour que le fond ne soit pas un aplat.
-	var weave := TextureRect.new()
-	weave.texture = PixelUI.weave_texture()
-	weave.stretch_mode = TextureRect.STRETCH_TILE
-	weave.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	weave.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(weave)
+	# Bandes diagonales qui glissent lentement derrière l'interface.
+	bg.material = Fx.material("stripes")
+	_bg_material = bg.material
+	_fit_window()
 
 	var margin := MarginContainer.new()
 	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -196,6 +200,13 @@ func _build_ui() -> void:
 	_build_income(main)
 	_build_cards(main)
 	_build_bottom(main)
+	if not _instant:
+		for i in main.get_child_count():
+			var block: Control = main.get_child(i)
+			block.modulate.a = 0.0
+			var tw := block.create_tween()
+			tw.tween_interval(0.08 + i * 0.07)
+			tw.tween_property(block, "modulate:a", 1.0, 0.18)
 
 	popup_layer = Control.new()
 	popup_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -223,8 +234,8 @@ func _hbox(sep := 4) -> HBoxContainer:
 
 func _chip(icon_name: String, color := PixelUI.TEXT) -> Array:
 	var p := PanelContainer.new()
-	p.add_theme_stylebox_override("panel", PixelUI.frame("chip", 5, 2))
-	var h := _hbox(3)
+	p.add_theme_stylebox_override("panel", PixelUI.frame("chip", 3, 2))
+	var h := _hbox(2)
 	p.add_child(h)
 	h.add_child(PixelUI.icon_rect(icon_name))
 	var l := PixelUI.label("", "main", color)
@@ -234,16 +245,16 @@ func _chip(icon_name: String, color := PixelUI.TEXT) -> Array:
 
 func _build_top_bar(parent: Control) -> void:
 	var bar := PanelContainer.new()
-	bar.add_theme_stylebox_override("panel", PixelUI.frame("panel", 4, 3))
+	bar.add_theme_stylebox_override("panel", PixelUI.frame("panel", 2, 3))
 	parent.add_child(bar)
-	var h := _hbox(4)
+	var h := _hbox(3)
 	bar.add_child(h)
 	var st := _chip("garage")
 	stage_label = st[1]
 	h.add_child(st[0])
 	# Progression vers l'étape suivante, en jauge dans la pastille.
 	stage_bar = PixelUI.bar(PixelUI.GOLD, 7)
-	stage_bar.custom_minimum_size = Vector2(34, 7)
+	stage_bar.custom_minimum_size = Vector2(22, 7)
 	stage_bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	(st[1] as Label).get_parent().add_child(stage_bar)
 	var col := _chip("album")
@@ -296,7 +307,7 @@ func _build_hero(parent: Control) -> void:
 	plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	plate.add_theme_constant_override("separation", -3)
 	car_rarity_chip.add_child(plate)
-	car_name = PixelUI.label("", "main")
+	car_name = PixelUI.ink_label("")
 	car_name.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	car_name.clip_text = true
 	plate.add_child(car_name)
@@ -304,9 +315,9 @@ func _build_hero(parent: Control) -> void:
 	sub.alignment = BoxContainer.ALIGNMENT_CENTER
 	sub.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	plate.add_child(sub)
-	car_rarity = PixelUI.label("", "small")
+	car_rarity = PixelUI.ink_label("", "small")
 	sub.add_child(car_rarity)
-	car_slot_label = PixelUI.label("", "small", PixelUI.MUTED)
+	car_slot_label = PixelUI.ink_label("", "small")
 	sub.add_child(car_slot_label)
 	var next := Button.new()
 	next.icon = PixelUI.icon("arrow_r")
@@ -337,10 +348,10 @@ func _build_income(parent: Control) -> void:
 	coins_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(coins_label)
 	var inc := PanelContainer.new()
-	inc.add_theme_stylebox_override("panel", PixelUI.frame("chip", 5, 1, "2f7a3c"))
+	inc.add_theme_stylebox_override("panel", PixelUI.frame("tag", 5, 0))
 	inc.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(inc)
-	income_label = PixelUI.label("", "main", PixelUI.MONEY)
+	income_label = PixelUI.ink_label("")
 	inc.add_child(income_label)
 	var rush_row := _hbox(4)
 	v.add_child(rush_row)
@@ -526,8 +537,15 @@ func _refresh_car() -> void:
 	scene.configure(Color(String(car["color"])), String(model["body"]), rarity, state.visual_tier(car), state.stage, String(car["model"]))
 	car_name.text = Catalog.display_name(String(car["model"])).to_upper()
 	car_rarity.text = Economy.RARITY_NAMES[rarity].to_upper()
-	car_rarity.add_theme_color_override("font_color", PixelUI.RARITY[rarity].lightened(0.35))
-	car_rarity_chip.add_theme_stylebox_override("panel", PixelUI.frame("plaque", 6, 1, PixelUI.RARITY[rarity].darkened(0.25).to_html(false)))
+	car_rarity_chip.add_theme_stylebox_override("panel", PixelUI.frame("plaque", 6, 1, PixelUI.RARITY[rarity].to_html(false)))
+	if car_name.text != _shown_name:
+		# Nouvelle voiture : le nom s'écrit lettre par lettre, le bandeau s'allume.
+		_shown_name = car_name.text
+		car_name.visible_ratio = 0.0
+		car_rarity_chip.modulate = Color(1.6, 1.6, 1.6)
+		var tw := create_tween().set_parallel(true)
+		tw.tween_property(car_name, "visible_ratio", 1.0, 0.28)
+		tw.tween_property(car_rarity_chip, "modulate", Color.WHITE, 0.3)
 	car_slot_label.text = "·  %d / %d" % [state.exhibited.find(selected_uid) + 1, state.exhibited.size()]
 
 
@@ -688,7 +706,7 @@ func _close_popup() -> void:
 
 ## Ouvre une fenêtre ; renvoie le conteneur où mettre son contenu.
 func _open_popup(kind: String, title: String, compact := false) -> VBoxContainer:
-	var animate := kind != popup_kind
+	var animate := kind != popup_kind and not _instant
 	_close_popup()
 	popup_kind = kind
 	popup_root = Control.new()
@@ -740,10 +758,14 @@ func _open_popup(kind: String, title: String, compact := false) -> VBoxContainer
 	vb.add_child(band)
 	var header := _hbox(4)
 	band.add_child(header)
-	var t := PixelUI.label(title.to_upper(), "main", PixelUI.GOLD)
+	var t := PixelUI.ink_label(title.to_upper())
 	t.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	t.clip_text = true
 	header.add_child(t)
+	if animate:
+		t.visible_ratio = 0.0
+		create_tween().tween_property(t, "visible_ratio", 1.0, 0.22)
+		_stagger.call_deferred(vb)
 	var close := Button.new()
 	close.text = "X"
 	close.custom_minimum_size = Vector2(24, 22)
@@ -761,6 +783,24 @@ func _open_popup(kind: String, title: String, compact := false) -> VBoxContainer
 	content.add_theme_constant_override("separation", 3)
 	popup_scroll.add_child(content)
 	return content
+
+
+## Fait apparaître les lignes d'une fenêtre l'une après l'autre.
+func _stagger(vb: VBoxContainer) -> void:
+	if not is_instance_valid(vb):
+		return
+	var rows: Array = []
+	for c in vb.get_children():
+		if c is ScrollContainer and c.get_child_count() > 0:
+			rows.append_array(c.get_child(0).get_children())
+		elif c.get_index() > 0:
+			rows.append(c)
+	for i in mini(rows.size(), 12):
+		var row: Control = rows[i]
+		row.modulate.a = 0.0
+		var tw := row.create_tween()
+		tw.tween_interval(0.05 + i * 0.035)
+		tw.tween_property(row, "modulate:a", 1.0, 0.12)
 
 
 func _open_tab(kind: String, tab: int) -> void:

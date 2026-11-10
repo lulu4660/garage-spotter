@@ -154,11 +154,27 @@ void fragment() {
 }
 """
 
+## Fond de l'interface : larges bandes diagonales qui glissent lentement,
+## dessinées à la taille des pixels du jeu (px = agrandissement de l'écran).
+const STRIPES := """
+shader_type canvas_item;
+uniform float px = 3.0;
+uniform vec4 base : source_color = vec4(0.07, 0.063, 0.09, 1.0);
+uniform vec4 band : source_color = vec4(0.095, 0.082, 0.12, 1.0);
+
+void fragment() {
+	vec2 p = floor(FRAGCOORD.xy / px);
+	float s = fract((p.x + p.y) / 56.0 - TIME * 0.035);
+	float k = step(0.5, s) * 0.6 + step(0.92, s) * 0.4;
+	COLOR = mix(base, band, k);
+}
+"""
+
 static var _cache := {}
 
 
 static func material(code_name: String) -> ShaderMaterial:
-	var code: String = {"post": POST, "car": CAR, "reflection": REFLECTION, "depth": DEPTH, "mirror": MIRROR, "shine": SHINE}[code_name]
+	var code: String = {"post": POST, "car": CAR, "reflection": REFLECTION, "depth": DEPTH, "mirror": MIRROR, "shine": SHINE, "stripes": STRIPES}[code_name]
 	if not _cache.has(code_name):
 		var sh := Shader.new()
 		sh.code = code
