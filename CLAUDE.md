@@ -6,7 +6,7 @@ Le document de game design (GDD) fait foi : https://claude.ai/artifact/WgkvZZaTt
 ## Stack
 - Appli : Godot 4 (GDScript), 2D uniquement. Dev sur PC Windows, test sur iPhone via l'export web, App Store plus tard depuis un Mac.
 - Serveur : Supabase (Auth, Postgres + RLS, Storage, Edge Functions).
-- IA : API de vision pour la reconnaissance ; pixel art de la mise à neuf via un Worker Cloudflare, modèle recommandé FLUX.2 [klein] 4B (part de la photo, ≈ 0,00035 $ l'image, voir `docs/choix-modele-image.md`).
+- IA : reconnaissance par un modèle de vision bon marché (Gemini Flash-Lite visé, ≈ 0,00015 $ la photo) ; un sprite généré **une fois par modèle de voiture**, mis en cache et partagé par tous les joueurs, recoloré à la couleur de la photo, modifications en calques (voir `docs/choix-modele-image.md`). Génération via un Worker Cloudflare, FLUX.2 [klein] 4B par défaut.
 - Pubs : AdMob. Achats : RevenueCat.
 
 ## Règles non négociables

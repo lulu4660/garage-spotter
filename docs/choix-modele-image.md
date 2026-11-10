@@ -85,3 +85,52 @@ de l'arrière, avec attelage.
   générer la vue dans l'angle de la photo.
 - Le filtre de Cloudflare bloque souvent à tort (« output flagged »), surtout avec une vraie photo : prévoir
   plusieurs essais et un plan B chez un autre fournisseur.
+
+## Réduire le coût : générer une fois par modèle, pas une fois par mise à neuf (10 novembre 2026)
+
+Un modèle d'image qui dessine la voiture exacte coûte ≈ 0,03 à 0,04 $ l'image (Nano Banana, Qwen Image
+Edit Plus, Seedream, FLUX Kontext pro). Payé à chaque mise à neuf, cela fait ≈ 6 $ par mois pour un joueur
+qui utilise ses 5 mises à neuf par jour : beaucoup trop cher. La solution n'est pas un modèle moins cher,
+c'est de **ne plus générer à chaque mise à neuf**.
+
+**Principe : un sprite par modèle de voiture, partagé par tous les joueurs, recoloré.**
+1. Photo → reconnaissance (marque, modèle, génération, carrosserie, couleur, modifications).
+2. On cherche dans le cache `make/model/generation` (Supabase Storage). Trouvé : on reprend ce sprite,
+   **recoloré** à la couleur de la photo (déjà prévu par les règles : sprites fixes recolorés). Coût : 0.
+3. Pas trouvé : on le génère **une seule fois**, en texte seul (« Honda Civic 11e génération hayon, vue 3/4
+   avant, sans logo ni plaque », + planche de style), en gris neutre pour pouvoir le recolorer, puis on le
+   stocke. Tous les joueurs suivants qui spottent ce modèle le reçoivent gratuitement.
+4. Les modifications visibles (aileron, jantes, vitres teintées, attelage…) sont des **calques** dessinés
+   une fois et posés sur le sprite, pas une nouvelle génération.
+
+Avantages en plus du prix : la voiture n'est plus inventée depuis une photo de dos (on part du nom, plus
+la photo), le rendu est relu une fois par modèle (aucun logo ni plaque qui passe), et la photo du joueur
+n'est plus envoyée à un générateur d'images.
+
+**Coûts estimés**
+
+| Poste | Combien | Coût |
+|---|---|---|
+| Reconnaissance par photo, Gemini 2.5 Flash-Lite (≈ 0,10 $ / M jetons en entrée, 0,40 $ en sortie ; une image ≈ 260 jetons) | ≈ 700 jetons entrée + 200 sortie | **≈ 0,00015 $** (offre gratuite au début) |
+| Reconnaissance, Gemini 3.1 Flash-Lite (0,25 $ / 1,50 $) | idem | ≈ 0,0005 $ |
+| Génération d'un nouveau modèle, modèle haut de gamme (≈ 0,04 $) | une fois par modèle | 2 000 modèles ≈ **80 $ en tout, une seule fois** |
+| Génération d'un nouveau modèle, FLUX.2 [klein] 4B | une fois par modèle | ≈ 0 (gratuit) |
+| Mise à neuf d'un modèle déjà en cache | recoloration + calques | **0** |
+
+Un joueur très actif (10 photos par jour) coûte donc ≈ 300 × 0,00015 ≈ **0,05 $ par mois**, au lieu
+de ≈ 6 $. On peut aussi **pré-générer avant la sortie** les ≈ 300 modèles les plus vendus en Europe :
+la plupart des spots tombent alors dans le cache dès le premier jour.
+
+Prix relevés sur des comparateurs (août 2026) et à confirmer sur les pages officielles avant de
+s'engager : Gemini 3.1 Flash-Lite est le seul prix confirmé par une annonce officielle.
+
+**Plan de test**
+1. Reconnaissance : comparer Gemini 2.5 Flash-Lite / 3.1 Flash-Lite sur une vingtaine de photos (dont
+   la Civic) avec Llama 4 Scout gratuit ; garder le moins cher qui trouve la bonne génération. En cas
+   de doute (confiance basse), le joueur choisit parmi 3 propositions.
+2. Génération en texte seul + planche de style : klein 4B d'abord (gratuit) ; si la voiture n'est pas
+   reconnaissable, un modèle haut de gamme, payé une seule fois par modèle.
+
+Sources : [tarifs Gemini API](https://ai.google.dev/pricing), [comparatif des prix d'image (invideo,
+août 2026)](https://invideo.io/blog/ai-image-model-pricing/), [Qwen Image Edit Plus (pricepertoken)](https://pricepertoken.com/image/model/qwen-qwen-image-edit-plus),
+[Gemini 2.5 Flash-Lite (anotherwrapper)](https://anotherwrapper.com/llm-pricing/gemini-2.5-flash-lite).
