@@ -6,7 +6,7 @@ Le document de game design (GDD) fait foi : https://claude.ai/artifact/WgkvZZaTt
 ## Stack
 - Appli : Godot 4 (GDScript), 2D uniquement. Dev sur PC Windows, test sur iPhone via l'export web, App Store plus tard depuis un Mac.
 - Serveur : Supabase (Auth, Postgres + RLS, Storage, Edge Functions).
-- IA : reconnaissance par un modèle de vision bon marché (Gemini 3.1 Flash-Lite, ≈ 0,0006 $ la photo, testé juste sur la Civic) ; un sprite généré **une fois par modèle de voiture**, mis en cache et partagé par tous les joueurs, recoloré à la couleur de la photo, modifications en calques (voir `docs/choix-modele-image.md`). Génération : un modèle haut de gamme une fois par modèle (klein 4B gratuit ne donne pas le modèle exact), recoloration `generate_cars.recolor`.
+- IA : reconnaissance par Gemini 3.1 Flash-Lite (≈ 0,0006 $ la photo) ; photo de référence du modèle exact prise sur Wikipédia (gratuit) ; pixel art par FLUX.2 [klein] 4B (gratuit/≈ 0,0004 $) avec référence + planche de style + photo du joueur, consigne « sans logo » (plaque sans importance). Un sprite par modèle, mis en cache, recoloré (`generate_cars.recolor`). Voir `docs/choix-modele-image.md` et `tools/ai/spot_photo.py`.
 - Pubs : AdMob. Achats : RevenueCat.
 
 ## Règles non négociables

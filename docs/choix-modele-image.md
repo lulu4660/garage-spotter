@@ -163,3 +163,35 @@ avec l'offre gratuite, Google peut utiliser les données envoyées ; en producti
 **Conclusion** : reconnaissance avec Gemini 3.1 Flash-Lite ; génération avec un modèle haut de gamme
 (Gemini Flash Image, ≈ 0,04 $) **une seule fois par modèle**, relu à la main (logos), puis recoloré pour
 tous les joueurs. klein 4B reste le secours gratuit pour les modèles rares.
+
+## Chaîne retenue, 100 % bon marché : photo de référence + FLUX.2 [klein] 4B (10 novembre 2026)
+
+Pas de modèle d'image payant. La fidélité au modèle vient d'une **vraie photo du modèle exact**,
+cherchée sur internet et jointe à la consigne :
+
+1. Reconnaissance : Gemini 3.1 Flash-Lite (≈ 0,0006 $), repli sur Workers AI si Gemini est saturé (503 fréquents).
+2. Référence : image principale de l'article Wikipédia du modèle (API Wikipédia, gratuite, sans clé ;
+   en général une vue de 3/4 avant de la bonne génération). À mettre en cache, une par modèle.
+3. Génération klein 4B : image 0 = la référence (forme exacte), image 1 = la planche de style,
+   image 2 = la photo du joueur (couleur, modifications). Consigne explicite : **ne pas dessiner le logo**
+   (calandre, capot, coffre, centres de roues lisses). La plaque n'est pas un problème : illisible en pixel art.
+4. Pixel art, `scrub_badges` (efface les petits logos restants), normales.
+
+**Résultats** (Civic 11 du joueur + 6 modèles de test) :
+- **Bien plus fidèle** que le nom seul : Clio V, 208 II et Model 3 sont reconnaissables au premier coup d'œil ;
+  la Civic a la face et les phares de la 11e génération.
+- Logo : souvent supprimé ; il reste parfois un logo de quelques pixels (losange, H), jugé acceptable.
+- Limites :
+  - Wikipédia donne parfois une autre génération (« Mini Hatch F56 » → photo d'une Mini R50) ou une autre
+    carrosserie (la photo de l'article Civic 11 est la berline) : chercher l'article de la génération,
+    puis vérifier la photo (Gemini, ≈ 0,0006 $, une fois par modèle).
+  - Les voitures argentées sur fond vert dérivent parfois (Clio rendue mauve).
+  - **Filtre de Cloudflare** : refuse beaucoup d'images de vraies marques (Civic ≈ 5 sur 6, Golf et Mini
+    8 sur 8). Un code couleur hexadécimal dans la consigne et la motorisation (« e:HEV ») aggravent le
+    problème : ils sont retirés. Le script fait jusqu'à 16 essais avec des graines au hasard et retire la
+    photo du joueur après 10 refus. Pour la Golf et la Mini, il faudra un plan B (autre hébergeur de klein 4B,
+    le modèle étant sous licence Apache 2.0, ou un GPU à la demande).
+- Coût : ≈ 0,0006 $ (reconnaissance) + ≈ 0,0004 $ par essai de génération, une fois par modèle si l'on met en cache.
+
+Commande : `GEMINI_API_KEY=... CF_ACCOUNT_ID=... python3 tools/ai/spot_photo.py photo.jpg sortie/`
+(`--no-reference` pour l'ancienne consigne, `--cleanup` pour la passe de retouche).
