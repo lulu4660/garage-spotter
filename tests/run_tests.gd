@@ -219,18 +219,20 @@ func _test_prestige_and_skills() -> void:
 	check(s.reputation == gain and s.rep_total == gain and s.prestige_count == 1, "réputation créditée")
 	check(s.coins == 0.0 and s.stage == 0 and int(s.cars[0]["levels"][0]) == 0 and s.run_earnings == 0.0, "prestige : pièces, niveaux, étape remis à zéro")
 	check(s.unique_models() == models and s.restore_tokens == tokens and s.is_restored(uid), "prestige : collection et mises à neuf gardées")
-	check(near(s.income_multiplier(), (1.0 + 0.01 * models) * (1.0 + 0.01 * gain)), "+1 % de revenus par point gagné")
+	check(near(s.income_multiplier(), 1.0 + 0.01 * models + 0.10 * sqrt(float(gain))), "réputation : +10 % × √points, ajouté aux autres bonus")
 	check(not s.can_buy_skill("r2"), "prérequis : r2 demande r1")
-	var inc := s.base_income()
-	check(s.buy_skill("r1") and near(s.base_income(), inc * 1.10), "Huile de coude : +10 % de revenus")
-	check(s.reputation == gain - 1 and not s.buy_skill("r1"), "compétence achetée une seule fois")
+	var mult := s.income_multiplier()
+	s.reputation += 10
+	check(s.buy_skill("r1") and near(s.income_multiplier(), mult + 0.10), "Huile de coude : +10 % de revenus (ajouté)")
+	check(s.reputation == gain and not s.buy_skill("r1"), "compétence achetée une seule fois")
 	var price := s.part_price(0, 5)
 	s.reputation += 10
 	check(s.buy_skill("a1") and near(s.part_price(0, 5), price * 0.9), "Clé à choc : améliorations -10 %")
 	var off := s.offline_result(0.0, 4.0 * 3600.0)
+	s.reputation += 20
 	s.buy_skill("r2")
 	check(float(s.offline_result(0.0, 4.0 * 3600.0)["gain"]) > float(off["gain"]), "Clients fidèles : hors ligne plus long à 100 %")
-	s.reputation += 50
+	s.reputation += 500
 	for id in ["g1", "g2", "g3", "g4", "g5"]:
 		s.buy_skill(id)
 	s.collect(Progression.earnings_for_points(2))
@@ -299,7 +301,7 @@ func _test_collections() -> void:
 		var uid := s.add_car(id)
 		s.restore(uid)
 	check(s.series_count(jdm) == 2 and s.series_tier(jdm) == 1, "2 JDM : palier 1")
-	check(near(s.income_multiplier(), (1.0 + 0.01 * s.unique_models()) * (1.0 + 0.05)), "palier 1 : +5 % de revenus")
+	check(near(s.income_multiplier(), 1.0 + 0.01 * s.unique_models() + 0.02), "palier 1 : +2 % de revenus (ajouté)")
 	var locked := s.add_car("mx6")
 	check(s.series_count(jdm) == 2, "une voiture grise ne compte pas")
 	s.restore(locked)

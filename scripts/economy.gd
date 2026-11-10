@@ -29,9 +29,9 @@ const PARTS: Array[Dictionary] = [
 
 const STAGES: Array[Dictionary] = [
 	{"name": "Box", "parts": 3, "cost": 0.0},
-	{"name": "Atelier", "parts": 6, "cost": 20000.0},
-	{"name": "Showroom", "parts": 8, "cost": 2.0e6},
-	{"name": "Hangar", "parts": 10, "cost": 2.0e8},
+	{"name": "Atelier", "parts": 6, "cost": 1.0e5},
+	{"name": "Showroom", "parts": 8, "cost": 5.0e7},
+	{"name": "Hangar", "parts": 10, "cost": 5.0e9},
 ]
 
 const START_SLOTS := 3

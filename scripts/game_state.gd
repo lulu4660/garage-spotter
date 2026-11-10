@@ -171,12 +171,12 @@ func car_income(car: Dictionary) -> float:
 	return Economy.car_income(rarity_of(car), car["levels"])
 
 
-## Multiplicateur global : collection, réputation, arbre, séries.
+## Multiplicateur global : collection, réputation, arbre et séries
+## s'additionnent (« les échelles s'additionnent, jamais ne se multiplient »).
 func income_multiplier() -> float:
 	var fx := effects()
-	var collection := 1.0 + (Economy.COLLECTION_BONUS + float(fx["collection_bonus"])) * unique_models()
-	var rep := 1.0 + Progression.REP_INCOME_BONUS * rep_total + float(fx["income_bonus"])
-	return collection * rep * float(fx["income_mult"])
+	var collection := (Economy.COLLECTION_BONUS + float(fx["collection_bonus"])) * unique_models()
+	return (1.0 + collection + Progression.rep_bonus(rep_total) + float(fx["income_bonus"])) * float(fx["income_mult"])
 
 
 ## Revenu par seconde sans le rush : ce que rapporte le garage au repos.
@@ -804,8 +804,8 @@ func setup_demo() -> void:
 	restore_tokens = 3
 	exhibited.assign([cars[2]["uid"], cars[0]["uid"], cars[1]["uid"], cars[3]["uid"], cars[4]["uid"]])
 	coins = 1.84e6
-	reputation = 7
-	rep_total = 12
+	reputation = 70
+	rep_total = 120
 	prestige_count = 1
 	for id in ["r1", "r2", "a1", "a2", "s1", "g1"]:
 		skills[id] = true

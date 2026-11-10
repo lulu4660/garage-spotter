@@ -6,11 +6,16 @@ extends RefCounted
 
 # --- Réputation (prestige) ---------------------------------------------------
 ## Repartir à zéro rapporte floor(√(gains de la partie / DIVISEUR)) points.
-## Chaque point gagné (à vie) donne +1 % de revenus, en plus de ce qu'on achète
-## dans l'arbre avec les points non dépensés.
+## Les points gagnés (à vie) donnent +10 % × √(points) de revenus : un bonus qui
+## ralentit avec le temps, pour que les prestiges ne s'emballent pas
+## (voir docs/equilibrage-progression.md). Les points non dépensés achètent l'arbre.
 
 const PRESTIGE_DIVISOR := 1.0e7
-const REP_INCOME_BONUS := 0.01
+const REP_INCOME_BONUS := 0.10
+
+
+static func rep_bonus(rep_total: int) -> float:
+	return REP_INCOME_BONUS * sqrt(float(maxi(rep_total, 0)))
 
 
 static func prestige_points(run_earnings: float) -> int:
@@ -40,30 +45,30 @@ const BRANCHES: Array[Dictionary] = [
 ]
 
 const SKILLS: Array[Dictionary] = [
-	{"id": "r1", "branch": "revenus", "name": "Huile de coude", "desc": "+10 % de revenus.", "cost": 1, "fx": {"income_mult": 1.10}},
-	{"id": "r2", "branch": "revenus", "name": "Clients fidèles", "desc": "Hors ligne : 100 % pendant 4 h au lieu de 2 h.", "cost": 2, "fx": {"offline_full_h": 2.0}},
-	{"id": "r3", "branch": "revenus", "name": "Néons tape-à-l'œil", "desc": "+25 % de revenus.", "cost": 4, "fx": {"income_mult": 1.25}},
-	{"id": "r4", "branch": "revenus", "name": "Rush prolongé", "desc": "Le rush dure 45 s et rapporte x2,5.", "cost": 6, "fx": {"rush_duration": 15.0, "rush_mult": 1.25}},
-	{"id": "r5", "branch": "revenus", "name": "Nuit blanche", "desc": "Hors ligne : jusqu'à 12 h au lieu de 8 h.", "cost": 10, "fx": {"offline_max_h": 4.0}},
-	{"id": "r6", "branch": "revenus", "name": "Empire de la nuit", "desc": "Revenus x2.", "cost": 20, "fx": {"income_mult": 2.0}},
-	{"id": "a1", "branch": "atelier", "name": "Clé à choc", "desc": "Améliorations -10 %.", "cost": 1, "fx": {"upgrade_cost_mult": 0.90}},
-	{"id": "a2", "branch": "atelier", "name": "Mécano", "desc": "+1 mécanicien : il achète les améliorations tout seul.", "cost": 2, "fx": {"staff_slots": 1}},
-	{"id": "a3", "branch": "atelier", "name": "Fournisseur attitré", "desc": "Améliorations -15 %.", "cost": 4, "fx": {"upgrade_cost_mult": 0.85}},
-	{"id": "a4", "branch": "atelier", "name": "Chef d'atelier", "desc": "Les mécaniciens travaillent 2 fois plus vite.", "cost": 6, "fx": {"staff_speed_mult": 2.0}},
-	{"id": "a5", "branch": "atelier", "name": "Équipe de nuit", "desc": "+1 mécanicien.", "cost": 10, "fx": {"staff_slots": 1}},
-	{"id": "a6", "branch": "atelier", "name": "Usine", "desc": "Améliorations -30 %.", "cost": 18, "fx": {"upgrade_cost_mult": 0.70}},
-	{"id": "s1", "branch": "spot", "name": "Œil de lynx", "desc": "Gain immédiat des spots x1,5.", "cost": 1, "fx": {"spot_gain_mult": 1.5}},
-	{"id": "s2", "branch": "spot", "name": "Carnet d'adresses", "desc": "+1 mise à neuf gratuite par jour.", "cost": 3, "fx": {"extra_restores": 1}},
-	{"id": "s3", "branch": "spot", "name": "Radar", "desc": "Spots plus fréquents (délai -30 %).", "cost": 4, "fx": {"spot_cooldown_mult": 0.70}},
-	{"id": "s4", "branch": "spot", "name": "Réseau de spotters", "desc": "+2 mises à neuf gratuites par jour.", "cost": 7, "fx": {"extra_restores": 2}},
-	{"id": "s5", "branch": "spot", "name": "Collectionneur", "desc": "Bonus de collection : +2 % par modèle au lieu de +1 %.", "cost": 10, "fx": {"collection_bonus": 0.01}},
-	{"id": "s6", "branch": "spot", "name": "Légende de la rue", "desc": "Gain immédiat des spots x3.", "cost": 16, "fx": {"spot_gain_mult": 3.0}},
-	{"id": "g1", "branch": "garage", "name": "Place réservée", "desc": "+1 place de garage au départ.", "cost": 1, "fx": {"start_slots": 1}},
-	{"id": "g2", "branch": "garage", "name": "Plans d'architecte", "desc": "Étapes du garage -25 %.", "cost": 3, "fx": {"stage_cost_mult": 0.75}},
-	{"id": "g3", "branch": "garage", "name": "Fond de caisse", "desc": "Repartir avec 50 K pièces.", "cost": 4, "fx": {"start_coins": 50000.0}},
-	{"id": "g4", "branch": "garage", "name": "Promoteur", "desc": "Places de garage -50 %.", "cost": 7, "fx": {"slot_cost_mult": 0.5}},
-	{"id": "g5", "branch": "garage", "name": "Atelier de départ", "desc": "Repartir directement à l'Atelier.", "cost": 10, "fx": {"start_stage": 1}},
-	{"id": "g6", "branch": "garage", "name": "Showroom de départ", "desc": "Repartir directement au Showroom, +1 place.", "cost": 20, "fx": {"start_stage": 1, "start_slots": 1}},
+	{"id": "r1", "branch": "revenus", "name": "Huile de coude", "desc": "+10 % de revenus.", "cost": 10, "fx": {"income_bonus": 0.10}},
+	{"id": "r2", "branch": "revenus", "name": "Clients fidèles", "desc": "Hors ligne : 100 % pendant 4 h au lieu de 2 h.", "cost": 20, "fx": {"offline_full_h": 2.0}},
+	{"id": "r3", "branch": "revenus", "name": "Néons tape-à-l'œil", "desc": "+25 % de revenus.", "cost": 40, "fx": {"income_bonus": 0.25}},
+	{"id": "r4", "branch": "revenus", "name": "Rush prolongé", "desc": "Le rush dure 45 s et rapporte x2,5.", "cost": 60, "fx": {"rush_duration": 15.0, "rush_mult": 1.25}},
+	{"id": "r5", "branch": "revenus", "name": "Nuit blanche", "desc": "Hors ligne : jusqu'à 12 h au lieu de 8 h.", "cost": 100, "fx": {"offline_max_h": 4.0}},
+	{"id": "r6", "branch": "revenus", "name": "Empire de la nuit", "desc": "+100 % de revenus.", "cost": 200, "fx": {"income_bonus": 1.0}},
+	{"id": "a1", "branch": "atelier", "name": "Clé à choc", "desc": "Améliorations -10 %.", "cost": 10, "fx": {"upgrade_cost_mult": 0.90}},
+	{"id": "a2", "branch": "atelier", "name": "Mécano", "desc": "+1 mécanicien : il achète les améliorations tout seul.", "cost": 20, "fx": {"staff_slots": 1}},
+	{"id": "a3", "branch": "atelier", "name": "Fournisseur attitré", "desc": "Améliorations -15 %.", "cost": 40, "fx": {"upgrade_cost_mult": 0.85}},
+	{"id": "a4", "branch": "atelier", "name": "Chef d'atelier", "desc": "Les mécaniciens travaillent 2 fois plus vite.", "cost": 60, "fx": {"staff_speed_mult": 2.0}},
+	{"id": "a5", "branch": "atelier", "name": "Équipe de nuit", "desc": "+1 mécanicien.", "cost": 100, "fx": {"staff_slots": 1}},
+	{"id": "a6", "branch": "atelier", "name": "Usine", "desc": "Améliorations -30 %.", "cost": 180, "fx": {"upgrade_cost_mult": 0.70}},
+	{"id": "s1", "branch": "spot", "name": "Œil de lynx", "desc": "Gain immédiat des spots x1,5.", "cost": 10, "fx": {"spot_gain_mult": 1.5}},
+	{"id": "s2", "branch": "spot", "name": "Carnet d'adresses", "desc": "+1 mise à neuf gratuite par jour.", "cost": 30, "fx": {"extra_restores": 1}},
+	{"id": "s3", "branch": "spot", "name": "Radar", "desc": "Spots plus fréquents (délai -30 %).", "cost": 40, "fx": {"spot_cooldown_mult": 0.70}},
+	{"id": "s4", "branch": "spot", "name": "Réseau de spotters", "desc": "+2 mises à neuf gratuites par jour.", "cost": 70, "fx": {"extra_restores": 2}},
+	{"id": "s5", "branch": "spot", "name": "Collectionneur", "desc": "Bonus de collection : +1,5 % par modèle au lieu de +1 %.", "cost": 100, "fx": {"collection_bonus": 0.005}},
+	{"id": "s6", "branch": "spot", "name": "Légende de la rue", "desc": "Gain immédiat des spots x3.", "cost": 160, "fx": {"spot_gain_mult": 3.0}},
+	{"id": "g1", "branch": "garage", "name": "Place réservée", "desc": "+1 place de garage au départ.", "cost": 10, "fx": {"start_slots": 1}},
+	{"id": "g2", "branch": "garage", "name": "Plans d'architecte", "desc": "Étapes du garage -25 %.", "cost": 30, "fx": {"stage_cost_mult": 0.75}},
+	{"id": "g3", "branch": "garage", "name": "Fond de caisse", "desc": "Repartir avec 50 K pièces.", "cost": 40, "fx": {"start_coins": 50000.0}},
+	{"id": "g4", "branch": "garage", "name": "Promoteur", "desc": "Places de garage -50 %.", "cost": 70, "fx": {"slot_cost_mult": 0.5}},
+	{"id": "g5", "branch": "garage", "name": "Atelier de départ", "desc": "Repartir directement à l'Atelier.", "cost": 100, "fx": {"start_stage": 1}},
+	{"id": "g6", "branch": "garage", "name": "Showroom de départ", "desc": "Repartir directement au Showroom, +1 place.", "cost": 200, "fx": {"start_stage": 1, "start_slots": 1}},
 ]
 
 const MULT_KEYS: Array[String] = ["income_mult", "upgrade_cost_mult", "stage_cost_mult", "slot_cost_mult", "spot_gain_mult", "spot_cooldown_mult", "rush_mult", "staff_speed_mult"]
@@ -124,7 +129,7 @@ const SERIES: Array[Dictionary] = [
 	{"id": "open", "name": "Cheveux au vent", "bodies": ["cabriolet", "roadster"], "tiers": [1, 2, 3]},
 	{"id": "exo", "name": "Supercars", "bodies": ["supercar"], "tiers": [1, 3, 6]},
 ]
-const SERIES_BONUS: Array[float] = [0.05, 0.10, 0.25]
+const SERIES_BONUS: Array[float] = [0.02, 0.04, 0.08]
 
 
 static func in_series(series: Dictionary, model: Dictionary) -> bool:
@@ -154,9 +159,9 @@ static func series_bonus(tier: int) -> float:
 ## mises à neuf ou en minutes de revenus.
 
 const MISSIONS: Array[Dictionary] = [
-	{"id": "spots", "text": "Fais %d spots", "stat": "spots", "goal": [3, 5, 8], "reward": {"restores": 1}},
+	{"id": "spots", "text": "Fais %d spots", "stat": "spots", "goal": [2, 3, 5], "reward": {"restores": 1}},
 	{"id": "levels", "text": "Achète %d niveaux de pièces", "stat": "levels", "goal": [25, 60, 150], "reward": {"minutes": 30}},
-	{"id": "taps", "text": "Touche ta voiture %d fois", "stat": "taps", "goal": [100, 250, 500], "reward": {"minutes": 20}},
+	{"id": "taps", "text": "Touche ta voiture %d fois", "stat": "taps", "goal": [60, 100, 120], "reward": {"minutes": 20}},
 	{"id": "restores", "text": "Mets %d voitures à neuf", "stat": "restores", "goal": [1, 2, 3], "reward": {"restores": 1}},
 	{"id": "rush", "text": "Déclenche %d rush", "stat": "rushes", "goal": [2, 4, 6], "reward": {"minutes": 30}},
 	{"id": "milestones", "text": "Franchis %d paliers x2", "stat": "milestones", "goal": [2, 4, 8], "reward": {"minutes": 45}},

@@ -7,7 +7,7 @@ S'appuie sur tools/sim/simulate_season.py (rue, voitures, joueur type, mise à n
 qui reste utilisable seul avec toutes ses options.
 
 Relancer :
-  python3 tools/sim/simulate_progression.py                    (rapport complet, ≈ 15-25 min)
+  python3 tools/sim/simulate_progression.py --runs 12 --quick  (rapport du doc, ≈ 35 min sur 4 cœurs)
   python3 tools/sim/simulate_progression.py --runs 4 --quick   (contrôle rapide)
   python3 tools/sim/simulate_progression.py --only base        (sections : base, profils, sensib, variantes, s2)
   python3 tools/sim/simulate_progression.py --csv out/         (séries par jour, profil type)
@@ -139,6 +139,9 @@ DEFAULT = dict(
     manual_parts=True,         # False : le joueur n'achète jamais de niveaux lui-même
     prestige_delay_h=24.0,     # délai mini entre deux prestiges (heures réelles)
     prestige_ratio=0.5,        # gain ≥ ratio × réputation à vie
+    prestige_min=1,            # gain minimum pour le tout premier prestige
+    rep_shape="lin",           # "lin" : bonus × points ; "sqrt" : bonus × √points
+    points_on="all",           # "all" : gains de la partie ; "norep" : gains hors bonus de réputation
 )
 
 
@@ -221,6 +224,8 @@ class PGame(Game):
         self._fx = None
         self._mult = None
         self.run_peak = 0.0
+        self.m_offered, self.m_done = {}, {}
+        self.stage_log = []    # (n° de partie, étape, heures depuis le début de la partie)
         self.first_point = None  # heure où le 1er point de réputation est disponible
         self.events = []       # prestiges : dict(t, gain, rep_total, before, recovered_h)
         self.pending = []      # prestiges dont le revenu d'avant n'est pas encore retrouvé
@@ -242,10 +247,13 @@ class PGame(Game):
         if self._fx is None:
             fx = {k: 1.0 for k in MULT_KEYS}
             fx.update({k: 0.0 for k in ADD_KEYS})
+            fx["income_add"] = 0.0  # mode « add » : +10 %, +25 %, +100 % additionnés
             if self.cfg["skills"]:
                 for sid in self.skills:
                     for k, v in self.skill_fx[sid].items():
                         fx[k] = fx[k] * v if k in MULT_KEYS else fx[k] + v
+                        if k == "income_mult":
+                            fx["income_add"] += v - 1.0
             fx["income_bonus"] += self.series_bonus_total()
             self._fx = fx
         return self._fx
@@ -269,7 +277,9 @@ class PGame(Game):
     def mult_parts(self):
         fx = self.fx()
         coll = (COLLECTION_BONUS + fx["collection_bonus"]) * self.n_restored
-        rep = self.cfg["rep_income_bonus"] * self.rep_total
+        rep = self.cfg["rep_income_bonus"] * (self.rep_total if self.cfg["rep_shape"] == "lin" else math.sqrt(self.rep_total))
+        if self.cfg["mult_mode"] == "add":
+            return coll, rep, fx["income_bonus"], 1.0 + fx["income_add"]
         return coll, rep, fx["income_bonus"], fx["income_mult"]
 
     def mult(self):
@@ -300,9 +310,16 @@ class PGame(Game):
         return self.cfg["staff_by_stage"][self.stage] + int(self.fx()["staff_slots"])
 
     # --- gains ---
+    def norep_ratio(self):
+        """Part du revenu qui ne vient pas du bonus de réputation."""
+        coll, rep, ser, im = self.mult_parts()
+        if self.cfg["mult_mode"] == "add":
+            return (1.0 + coll + ser + (im - 1.0)) / self.mult()
+        return 1.0 / (1.0 + rep + ser) * (1.0 + ser)
+
     def earn(self, x, src):
         self.coins += x
-        self.run_earnings += x
+        self.run_earnings += x if self.cfg["points_on"] == "all" else x * self.norep_ratio()
         self.earned += x
         self.src[src] += x
 
@@ -326,6 +343,9 @@ class PGame(Game):
             self.tokens = min(self.tokens + q, 3 * q)
         self.ads_today = 0
         self.today = {}
+        for m in self.missions:
+            self.m_offered[m[0]] = self.m_offered.get(m[0], 0) + 1
+            self.m_done[m[0]] = self.m_done.get(m[0], 0) + (1 if m[3] else 0)
         self.missions = []
         if self.cfg["missions"]:
             for k in self.mrng.sample(range(len(MISSIONS)), 3):
@@ -498,6 +518,7 @@ class PGame(Game):
             else:
                 self.stage += 1
                 self.record_max("stage", self.stage)
+                self.stage_log.append((self.prestiges, self.stage, self.now - self.last_prestige))
         return bought
 
     # --- mécaniciens (game_state._work_staff : la pièce la moins chère, ≤ budget × pièces) ---
@@ -534,7 +555,7 @@ class PGame(Game):
         g = self.prestige_gain()
         if g >= 1 and self.first_point is None:
             self.first_point = self.now
-        if g < 1 or self.now - self.last_prestige < self.cfg["prestige_delay_h"]:
+        if g < (self.cfg["prestige_min"] if self.rep_total == 0 else 1) or self.now - self.last_prestige < self.cfg["prestige_delay_h"]:
             return False
         if self.rep_total > 0 and g < self.cfg["prestige_ratio"] * self.rep_total:
             return False
@@ -733,7 +754,9 @@ def _one(args):
         m_tok=g.mission_tokens, a_tok=g.ach_tokens, restores=g.stats["restores"],
         absorbed=g.absorbed, reward_coins=g.reward_coins, earned=g.earned, src=dict(g.src),
         gray_peak=max(x["locked"] for x in daily), ads=g.stats["ads"],
-        end=daily[-1]["record"], end_now=daily[-1]["income"],
+        m_offered=g.m_offered, m_done=g.m_done,
+        end=daily[-1]["record"], end_now=daily[-1]["income"], stage_log=g.stage_log,
+        maxed=sum(1 for c in g.exhibited for l in c.levels[:g.parts()] if l >= MAX_LEVEL) / max(1, len(g.exhibited) * g.parts()),
     )
 
 
@@ -766,12 +789,13 @@ DAYS_SHOWN = (1, 2, 3, 5, 7, 10, 14, 21, 28, 35, 49, 63, 70)
 
 
 # --- sections du rapport ----------------------------------------------------
-def section_base(runs):
-    print("## A. Joueur type (gratuit), règles actuelles\n")
-    base = collect("gratuit", runs)
+def section_base(runs, cfg=None, title="## A. Joueur type (gratuit), règles actuelles"):
+    print(title + "\n")
+    cfg = cfg or {}
+    base = collect("gratuit", runs, cfg)
     nosys = collect("gratuit", runs, dict(prestige=False, skills=False, staff=False, series=False,
                                           missions=False, achievements=False))
-    nop = collect("gratuit", runs, dict(prestige=False))
+    nop = collect("gratuit", runs, dict(cfg, prestige=False))
     fp = [x["first_p"] for x in base]
     print("| Indicateur | Médiane | P10 – P90 |")
     print("|---|---|---|")
@@ -823,6 +847,25 @@ def section_base(runs):
         print(f"| {name} | {dt} | {statistics.mean(x['p_buy'] for x in rs) * 100:.0f} % | "
               f"{statistics.mean(x['buy'] for x in rs) * 100:.0f} % |")
 
+    print("\n### Étapes du garage (heures après le début de la partie, médiane)\n")
+    print("| Étape | 1re partie (heure de jeu) | Parties suivantes (h après le prestige) | Parties suivantes qui l'atteignent |")
+    print("|---|---|---|---|")
+    for st, name in ((1, "Atelier"), (2, "Showroom"), (3, "Hangar")):
+        first = [next((h for k, s_, h in x["stage_log"] if k == 0 and s_ == st), None) for x in base]
+        later = [h for x in base for k, s_, h in x["stage_log"] if k >= 1 and s_ == st]
+        runs_after = sum(x["n_p"] for x in base)
+        print(f"| {name} | {fh(med(first))} | {fmt(med(later)) if later else '–'} | {len(later)}/{runs_after} |")
+    print(f"\nPièces au niveau 200 au jour 70 : {med([x['maxed'] for x in base]) * 100:.0f} % des pièces exposées.")
+    print("\n### Missions du jour réussies (joueur type, toutes parties)\n")
+    print("| Mission | Réussies / proposées |")
+    print("|---|---|")
+    off, done = {}, {}
+    for x in base:
+        for k, v in x["m_offered"].items():
+            off[k] = off.get(k, 0) + v
+            done[k] = done.get(k, 0) + x["m_done"].get(k, 0)
+    for k in off:
+        print(f"| {k} | {done[k]}/{off[k]} ({done[k] / off[k] * 100:.0f} %) |")
     print("\n### Mécaniciens et récompenses\n")
     print(f"- Part des niveaux achetés par les mécaniciens : {statistics.mean(x['staff_share'] for x in base) * 100:.0f} % "
           f"(part des pièces dépensées : {statistics.mean(x['staff_spent'] for x in base) * 100:.1f} %).")
@@ -928,19 +971,20 @@ def section_sensitivity(runs, nosys):
         summary_row(name, collect("gratuit", runs, cfg), nosys)
 
 
+# Proposition retenue (voir docs/equilibrage-progression.md) :
+# - diviseur inchangé (1e7) ; bonus de réputation = 10 % × √(réputation à vie) au lieu de 1 %/point ;
+# - tous les bonus globaux additionnés (collection + réputation + séries + arbre) ;
+# - séries +2/+4/+8 % ; « Collectionneur » +0,5 %/modèle ; coûts de l'arbre ×10 ;
+# - étapes 1e5 / 5e7 / 5e9 ; mécaniciens et récompenses inchangés.
 PROPOSAL = dict(
-    prestige_divisor=1.0e9,
-    rep_income_bonus=0.02,
-    skill_costs={"r1": 1, "r2": 2, "r3": 4, "r4": 8, "r5": 12, "r6": 30,
-                 "a1": 1, "a2": 3, "a3": 5, "a4": 8, "a5": 14, "a6": 25,
-                 "s1": 2, "s2": 3, "s3": 5, "s4": 8, "s5": 15, "s6": 25,
-                 "g1": 1, "g2": 3, "g3": 5, "g4": 8, "g5": 14, "g6": 30},
-    skill_fx={"r6": {"income_mult": 1.5}, "s6": {"spot_gain_mult": 2.0}},
-    staff_interval=15.0, staff_budget=0.10,
-    series_bonus=[0.02, 0.04, 0.08],
-    mission_restores=0.0, achievement_restores=0.4,
+    prestige_divisor=1.0e7,
+    rep_shape="sqrt",
+    rep_income_bonus=0.10,
     mult_mode="add",
-    stage_prices=[1.0e5, 1.0e8, 1.0e10],
+    series_bonus=[0.02, 0.04, 0.08],
+    skill_fx={"s5": {"collection_bonus": 0.005}},
+    skill_costs={s[0]: 10 * s[2] for s in SKILLS},
+    stage_prices=[1.0e5, 5.0e7, 5.0e9],
 )
 
 
@@ -954,13 +998,27 @@ def section_variants(runs, nosys):
         ("Diviseur 1e9", dict(prestige_divisor=1e9)),
         ("Diviseur 1e10", dict(prestige_divisor=1e10)),
         ("Bonus de réputation 0,5 %/pt", dict(rep_income_bonus=0.005)),
-        ("Bonus globaux additionnés (pas de produit)", dict(mult_mode="add")),
+        ("Bonus globaux additionnés", dict(mult_mode="add")),
         ("Séries +2/+4/+8 %", dict(series_bonus=[0.02, 0.04, 0.08])),
         ("Coûts de l'arbre ×2", dict(skill_costs={s[0]: 2 * s[2] for s in SKILLS})),
-        ("Mécaniciens 15 s, budget 10 %", dict(staff_interval=15.0, staff_budget=0.10)),
-        ("Étapes 1e5 / 1e8 / 1e10", dict(stage_prices=[1e5, 1e8, 1e10])),
-        ("Diviseur 1e9 + additionnés + séries réduites", dict(prestige_divisor=1e9, mult_mode="add", series_bonus=[0.02, 0.04, 0.08])),
-        ("PROPOSITION complète", P),
+        ("Mécaniciens 4 s, budget 50 %", dict(staff_interval=4.0, staff_budget=0.5)),
+        ("Additionnés + diviseur 1e8", dict(prestige_divisor=1e8, mult_mode="add")),
+        ("Additionnés + diviseur 1e9", dict(prestige_divisor=1e9, mult_mode="add")),
+        ("Additionnés + diviseur 1e9 + séries 2/4/8 + étapes 1e5/5e7/5e9", dict(prestige_divisor=1e9, mult_mode="add", series_bonus=[0.02, 0.04, 0.08], stage_prices=[1e5, 5e7, 5e9])),
+        ("Additionnés + bonus 10 % × √réputation", dict(mult_mode="add", rep_shape="sqrt", rep_income_bonus=0.10)),
+        ("Additionnés + bonus 5 % × √réputation", dict(mult_mode="add", rep_shape="sqrt", rep_income_bonus=0.05)),
+        ("Additionnés + points calculés hors bonus de réputation", dict(mult_mode="add", points_on="norep")),
+        ("PROPOSITION", P),
+        ("PROPOSITION, bonus 5 % × √réputation", dict(P, rep_income_bonus=0.05)),
+        ("PROPOSITION, coûts de l'arbre ×5", dict(P, skill_costs={s[0]: 5 * s[2] for s in SKILLS})),
+        ("PROPOSITION, coûts de l'arbre ×15", dict(P, skill_costs={s[0]: 15 * s[2] for s in SKILLS})),
+        ("PROPOSITION, étapes actuelles", dict(P, stage_prices=None)),
+        ("PROPOSITION, séries actuelles (5/10/25 %)", dict(P, series_bonus=SERIES_BONUS)),
+        ("PROPOSITION, sans récompenses en mises à neuf", dict(P, mission_restores=0.0, achievement_restores=0.0)),
+        ("PROPOSITION, mécaniciens 4 s, budget 50 %", dict(P, staff_interval=4.0, staff_budget=0.5)),
+        ("PROPOSITION, délai mini 6 h", dict(P, prestige_delay_h=6.0)),
+        ("PROPOSITION, ratio 25 % (prestiges fréquents)", dict(P, prestige_ratio=0.25)),
+        ("PROPOSITION, ratio 100 % (prestiges rares)", dict(P, prestige_ratio=1.0)),
     ]
     out = {}
     for name, cfg in variants:
@@ -1080,6 +1138,7 @@ def main():
     if "variantes" in only:
         section_variants(vr, nosys)
     if "proposition" in only:
+        section_base(a.runs, PROPOSAL, "## F0. Joueur type (gratuit), PROPOSITION")
         section_proposal(a.runs, None)
     if "s2" in only:
         section_s2(max(4, vr // 2))

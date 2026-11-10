@@ -941,7 +941,7 @@ func _show_tree() -> void:
 	var content := _open_popup("tree", "Réputation")
 	var gain := state.prestige_gain()
 	var head := _row(content, "star", "ffc23d")
-	_texts(head, "%d point(s) à dépenser" % state.reputation, "Gagnés au total : %d, soit +%d %% de revenus pour toujours." % [state.rep_total, int(Progression.REP_INCOME_BONUS * 100 * state.rep_total)], PixelUI.GOLD)
+	_texts(head, "%d point(s) à dépenser" % state.reputation, "Gagnés au total : %d, soit +%d %% de revenus pour toujours (10 %% × racine des points)." % [state.rep_total, int(round(Progression.rep_bonus(state.rep_total) * 100.0))], PixelUI.GOLD)
 	# Prestige : repartir à zéro contre des points.
 	var pres := Button.new()
 	pres.custom_minimum_size = Vector2(0, 30)
