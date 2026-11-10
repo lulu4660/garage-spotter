@@ -463,7 +463,7 @@ func _refresh_car() -> void:
 		return
 	var model := Catalog.get_car(String(car["model"]))
 	var rarity := int(model["rarity"])
-	scene.configure(Color(String(car["color"])), String(model["body"]), rarity, state.visual_tier(car), state.stage)
+	scene.configure(Color(String(car["color"])), String(model["body"]), rarity, state.visual_tier(car), state.stage, String(car["model"]))
 	car_name.text = Catalog.display_name(String(car["model"])).to_upper()
 	car_rarity.text = Economy.RARITY_NAMES[rarity].to_upper()
 	car_rarity.add_theme_color_override("font_color", PixelUI.RARITY[rarity].lightened(0.35))
@@ -862,7 +862,7 @@ func _show_album() -> void:
 		var locked := not bool(car["restored"])
 		var row := _row(content, "", PixelUI.RARITY[rarity].to_html(false))
 		var thumb := TextureRect.new()
-		thumb.texture = CarRenderer.render(String(model["body"]), Color(String(car["color"])), state.visual_tier(car), 0.8, locked)["texture"]
+		thumb.texture = CarRenderer.render(String(model["body"]), Color(String(car["color"])), state.visual_tier(car), 0.8, locked, String(car["model"]))["texture"]
 		thumb.stretch_mode = TextureRect.STRETCH_KEEP_CENTERED
 		thumb.custom_minimum_size = Vector2(76, 0)
 		row.add_child(thumb)
@@ -1104,7 +1104,7 @@ func _show_spot(result: Dictionary) -> void:
 	var preview := RevealView.new()
 	preview.custom_minimum_size = Vector2(0, 110)
 	vb.add_child(preview)
-	preview.setup(String(model["body"]), Color(String(model["color"])), rarity, true)
+	preview.setup(String(model["body"]), Color(String(model["color"])), rarity, true, String(result["model"]))
 	var name_label := PixelUI.label(Catalog.display_name(String(result["model"])).to_upper(), "main", PixelUI.RARITY[rarity].lightened(0.35))
 	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vb.add_child(name_label)
@@ -1143,7 +1143,7 @@ func _show_restore(uid: int, info := {}) -> void:
 	var reveal := RevealView.new()
 	reveal.custom_minimum_size = Vector2(0, 116)
 	vb.add_child(reveal)
-	reveal.setup(body, Color(String(car["color"])), rarity, false)
+	reveal.setup(body, Color(String(car["color"])), rarity, false, String(car["model"]))
 	var name_label := PixelUI.label("? ? ?", "main", PixelUI.MUTED)
 	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vb.add_child(name_label)

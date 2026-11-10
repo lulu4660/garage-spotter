@@ -24,6 +24,7 @@ signal tapped(local_pos: Vector2)
 
 var body_color := Color("8a5a3c")
 var body_type := "citadine"
+var model_id := ""
 var rarity := 0
 var tier := 0
 var stage := 0
@@ -141,9 +142,10 @@ func _make_light(color: Color, energy: float, height: float) -> PointLight2D:
 	return l
 
 
-func configure(color: Color, body: String, rarity_index: int, tier_index: int, stage_index: int) -> void:
+func configure(color: Color, body: String, rarity_index: int, tier_index: int, stage_index: int, model := "") -> void:
 	body_color = color
 	body_type = body
+	model_id = model
 	rarity = rarity_index
 	tier = tier_index
 	stage = stage_index
@@ -191,13 +193,14 @@ func _layout() -> void:
 		var s := CarRenderer.fit_scale(body_type, Vector2(w * (0.70 if show_backdrop else 0.84), h * 0.56))
 		if s != _car_scale or _car.is_empty():
 			_car_scale = s
-			_car = CarRenderer.render(body_type, body_color, tier, s)
-		var tex: ImageTexture = _car["texture"]
+			_car = CarRenderer.render(body_type, body_color, tier, s, false, model_id)
+		var tex: Texture2D = _car["texture"]
 		var tsize := Vector2(tex.get_size())
 		_car_pos = (_plat_c - Vector2(_car["anchor"])).floor()
 		var ct := CanvasTexture.new()
 		ct.diffuse_texture = tex
-		ct.normal_texture = _car["normal"]
+		if _car["normal"] != null:
+			ct.normal_texture = _car["normal"]
 		ct.specular_texture = _car["specular"]
 		ct.specular_color = Color(1.0, 0.95, 0.9)
 		ct.specular_shininess = 0.75

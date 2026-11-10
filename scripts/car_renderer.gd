@@ -134,7 +134,12 @@ static var _cache := {}
 
 ## Renvoie {texture, image, exhaust, anchor, ground} pour une voiture.
 ## locked : silhouette grise d'une voiture pas encore mise à neuf.
-static func render(body: String, color: Color, tier: int, scale: float, locked := false) -> Dictionary:
+static func render(body: String, color: Color, tier: int, scale: float, locked := false, model := "") -> Dictionary:
+	# Voiture mise à neuf : sprite généré (FLUX.2 klein) s'il existe pour ce modèle.
+	if not locked and model != "":
+		var ai := sprite(model, scale >= 1.6)
+		if not ai.is_empty():
+			return ai
 	if locked:
 		color = LOCKED_BODY
 		tier = 0
@@ -152,6 +157,48 @@ static func render(body: String, color: Color, tier: int, scale: float, locked :
 
 
 ## Échelle qui fait tenir une carrosserie dans une boîte (largeur, hauteur).
+const SPRITE_DIR := "res://assets/cars/"
+
+
+## Sprite généré d'un modèle (grand ou vignette), au même format que render() ;
+## vide s'il n'existe pas.
+static func sprite(model: String, big := true) -> Dictionary:
+	var key := "ai|%s|%s" % [model, big]
+	if _cache.has(key):
+		return _cache[key]
+	var path := SPRITE_DIR + model + ("" if big else "_s") + ".png"
+	if not ResourceLoader.exists(path):
+		return {}
+	var tex: Texture2D = load(path)
+	var info := {"anchor": [tex.get_width() * 0.5, tex.get_height() * 0.88], "ground": tex.get_height() - 2, "exhaust": [tex.get_width() - 10, tex.get_height() - 6], "lamps": []}
+	var meta_path := SPRITE_DIR + model + ".json"
+	if big and FileAccess.file_exists(meta_path):
+		var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(meta_path))
+		if typeof(parsed) == TYPE_DICTIONARY:
+			info = parsed
+	var normal: Texture2D = null
+	if big and ResourceLoader.exists(SPRITE_DIR + model + "_n.png"):
+		normal = load(SPRITE_DIR + model + "_n.png")
+	var spec := Image.create(tex.get_width(), tex.get_height(), false, Image.FORMAT_RGBA8)
+	spec.fill(Color(0.6, 0.6, 0.6, 1.0))
+	var lamps: Array[Vector2] = []
+	for l in info.get("lamps", []):
+		lamps.append(Vector2(l[0], l[1]))
+	var out := {
+		"texture": tex,
+		"image": tex.get_image(),
+		"normal": normal,
+		"specular": ImageTexture.create_from_image(spec),
+		"anchor": Vector2(info["anchor"][0], info["anchor"][1]),
+		"ground": float(info["ground"]),
+		"exhaust": Vector2(info["exhaust"][0], info["exhaust"][1]),
+		"lamps": lamps,
+		"generated": true,
+	}
+	_cache[key] = out
+	return out
+
+
 static func fit_scale(body: String, box: Vector2, lo := 1.0, hi := 3.2) -> float:
 	var ref: Dictionary = render(body, LOCKED_BODY, 0, 1.0, true)
 	var sz := Vector2(ref["texture"].get_size())

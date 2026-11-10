@@ -43,8 +43,14 @@ Mise à neuf : chaque voiture spottée arrive grise (silhouette de sa carrosseri
 - Pour un objet pixel : positions et tailles en pixels entiers, filtre « nearest », jamais d'agrandissement non entier. Les effets doux passent par `fx.gd` (shaders, `soft_dot`, couche additive).
 - Polices : Garage Jersey en 19 (texte) ou 38 (gros chiffres), Micro 5 en 11 (petits textes). Aucune autre taille.
 - Couleurs depuis `pixel_ui.gd` ; contour sombre d'1 px sur les sprites ; lumière venant du haut.
-- Aucune image générée par IA dans le dépôt pour l'instant ; aucune marque réelle (logo, calandre reconnaissable).
+- Images générées par IA : seulement les sprites de voitures (`assets/cars/`), produits par `tools/ai/generate_cars.py` (FLUX.2 [klein] 4B sur Cloudflare Workers AI, licence Apache 2.0). Aucune marque réelle (logo, badge, texte, plaque) : relire chaque nouveau sprite.
 - `tools/car_sheet.gd` produit une planche de toutes les carrosseries pour relire le rendu des voitures.
+
+## Sprites de voitures générés (mise à neuf)
+- Une voiture mise à neuf s'affiche avec son sprite généré `assets/cars/<id>.png` (~168 px, + `_s` vignette, `_n` reliefs pour l'éclairage, `.json` points d'ancrage) ; sans sprite, on retombe sur `car_renderer.gd`. Les silhouettes grises (voitures bloquées) restent celles de `car_renderer.gd`.
+- Générer : `CF_ACCOUNT_ID=... GODOT=... python3 tools/ai/generate_cars.py [ids] [--force] [--only-process]`. Le script rend la carrosserie (guide d'angle et de couleur), envoie aussi `tools/ai/style_sheet.png` comme référence de style, puis nettoie en vrai pixel art (détourage, grille nette, palette 48 couleurs, contour 1 px). Les voitures claires sont générées sur fond vert pour un détourage propre.
+- Le jeton Cloudflare n'est jamais dans le dépôt ; ≈ 37 Neurons par voiture (10 000 gratuits par jour). Le filtre de Cloudflare bloque parfois une image à tort : le script réessaie avec une autre graine.
+- Phase 1 : la même consigne partira de la photo du joueur (image 0) via un Worker.
 
 ## Version web
 - `export_presets.cfg` : préréglage « Web » sans threads (Safari iPhone, hébergement simple). Export : `godot --headless --path . --export-release "Web" build/web/index.html`.

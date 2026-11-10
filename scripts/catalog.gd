@@ -14,7 +14,7 @@ const CARS: Array[Dictionary] = [
 	{"id": "peujo3080", "brand": "Peujo", "name": "3080", "rarity": 0, "body": "suv", "color": "2b2d33"},
 	{"id": "octavio", "brand": "Skado", "name": "Octavio Break", "rarity": 0, "body": "break", "color": "8a8f96"},
 	{"id": "kongo", "brand": "Renolt", "name": "Kongo", "rarity": 0, "body": "monospace", "color": "e8e4dc"},
-	{"id": "transiz", "brand": "Fourd", "name": "Transiz", "rarity": 0, "body": "fourgon", "color": "f2f0ea"},
+	{"id": "transiz", "brand": "Fourd", "name": "Transiz", "rarity": 0, "body": "fourgon", "color": "e0781e"},
 	# Peu communes
 	{"id": "gulf_gti", "brand": "Volkswagon", "name": "Gulf GTJ", "rarity": 1, "body": "compacte", "color": "d23a2c"},
 	{"id": "mimi_s", "brand": "Mimi", "name": "Coopar S", "rarity": 1, "body": "citadine", "color": "2f5d3a"},
