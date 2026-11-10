@@ -195,3 +195,20 @@ cherchée sur internet et jointe à la consigne :
 
 Commande : `GEMINI_API_KEY=... CF_ACCOUNT_ID=... python3 tools/ai/spot_photo.py photo.jpg sortie/`
 (`--no-reference` pour l'ancienne consigne, `--cleanup` pour la passe de retouche).
+
+## Nouvel angle et abandon de Wikipédia (10 novembre 2026, soir)
+
+- **Angle unique** : toutes les voitures du jeu suivent l'angle des silhouettes grises fournies (3/4 avant, caméra basse,
+  avant à gauche), plus de vue de dessus. La silhouette de la carrosserie est envoyée à l'IA comme guide d'angle, de
+  taille et de position ; la planche de voitures en couleur sert de référence de style. Les 32 voitures du catalogue
+  ont été régénérées ainsi : silhouette et voiture mise à neuf se superposent.
+- **Wikipédia retiré** : trop de refus du filtre et de mauvaises photos (autre génération, autre carrosserie).
+- **Cause des refus trouvée** : le **nom de marque ou de modèle dans la consigne**, dès qu'une photo est jointe.
+  Sur la photo de la Civic : 0 image acceptée sur 6 avec « Honda Civic », 0 sur 3 avec « Civic » seul, **6 sur 6 sans
+  nom**, plaque lisible ou floutée (la plaque n'y change rien). La consigne ne décrit donc plus que la couleur et la
+  carrosserie : c'est la photo qui porte l'identité.
+- **Fidélité sans le nom** : photo de 3/4 avant → voiture proche du modèle (calandre, phares, proportions) ; photo de
+  dos → voiture générique de la bonne couleur et de la bonne carrosserie (l'avant est inventé). À décider côté jeu :
+  demander une photo de l'avant, ou accepter une voiture générique pour les photos de dos.
+- **Quota** : régénérer le catalogue et faire les essais a consommé les 10 000 Neurons gratuits du jour (remise à
+  zéro à minuit UTC). `amg_c36` est sortie dans un mauvais angle et reste à refaire (`--seed=N`).

@@ -11,7 +11,7 @@ Sorties dans assets/cars/ : <id>.png (grand, ~168 px), <id>_s.png (vignette, ~72
 <id>_n.png (reliefs du grand) et <id>.json (points d'ancrage). Brut dans tools/ai/out/ (ignoré).
 
 Usage :
-  CF_ACCOUNT_ID=... GODOT=/chemin/godot python3 tools/ai/generate_cars.py [ids...] [--force] [--only-process]
+  CF_ACCOUNT_ID=... python3 tools/ai/generate_cars.py [ids...] [--force] [--only-process] [--seed=N]
 Le jeton Cloudflare est lu dans CF_API_TOKEN (dans le conteneur de Claude, le relais réseau
 l'ajoute tout seul : mettre CF_API_TOKEN=proxy-injected). Coût : ≈ 37 Neurons par voiture
 (10 000 gratuits par jour), voir docs/choix-modele-image.md.
@@ -83,29 +83,34 @@ def is_light(car):
     return colorsys.rgb_to_hls(r, g, b)[1] > 0.75
 
 
+GUIDES = os.path.join(ROOT, "tools", "ai", "guides")
+# Angle commun à toutes les voitures du jeu : celui des silhouettes (assets/silhouettes).
+VIEW = ("three-quarter front view from a low camera at about headlight height, standing a few metres away (not from above, "
+        "not isometric), front of the car on the LEFT side of the picture, the whole left flank and both left wheels visible")
+STYLE_TEXT = ("clean modern pixel art illustration like a premium mobile game: crisp dark outline, flat cel-shaded paint with a few "
+              "sharp highlights, dark tinted windows, detailed wheels and headlights")
+
+
+def guide(body):
+    """Guide d'angle : la silhouette grise de la carrosserie (à défaut, celle du coupé)."""
+    path = os.path.join(GUIDES, body + ".png")
+    return path if os.path.exists(path) else os.path.join(GUIDES, "coupe.png")
+
+
 def prompt_for(car):
     col = color_name(car["color"])
     # Voiture claire : fond vert uni (comme un fond vert de cinéma), sinon le
     # détourage confondrait la carrosserie blanche avec le fond blanc.
-    bg = "plain solid bright green background (#00c000)" if is_light(car) else "plain white background"
+    bg = "Plain solid bright green background (#00c000)" if is_light(car) else "Plain white background"
     desc = "a %s %s %s %s" % (RARITY_HINT[car["rarity"]], col, ORIGIN.get(car["brand"], "European"), BODY[car["body"]])
     return (
-        "Detailed modern pixel art sprite of %s. The car body paint MUST be %s, exactly like image 0. "
-        "Use image 0 for the body type, the paint colour and the camera angle (three-quarter front view, "
-        "front of the car on the LEFT side of the picture). Image 1 is a sheet of example sprites: use only its drawing style, never copy one of its cars or colours: "
-        "high-detail pixel art like a premium mobile game, crisp dark outline, glossy paint with sharp highlights, "
-        "tinted windows, detailed alloy wheels and headlights, %s, no ground shadow. "
-        "Realistic proportions. No logos, no badges, no emblems, no text, no license plate." % (desc, col, bg)
+        "Pixel art sprite of %s. The car body paint MUST be %s. "
+        "Image 0 is a dark grey placeholder of the same kind of car: keep exactly its camera angle, its size and its position in the "
+        "picture (%s), but draw a new car with its own design, in full colour. "
+        "Image 1 is a sheet of example sprites: use only its drawing style and its camera angle, never copy one of its cars or colours: %s. "
+        "%s, no ground shadow, no scenery. Realistic proportions. No logos, no badges, no emblems, no text, no license plate."
+        % (desc, col, VIEW, STYLE_TEXT, bg)
     )
-
-
-def render_subject(car, path):
-    godot = os.environ.get("GODOT", "godot")
-    subprocess.run([godot, "--headless", "--path", ROOT, "-s", "tools/ai/render_subject.gd", "--",
-                    car["body"], car["color"], path], check=True, capture_output=True)
-    im = Image.open(path)
-    im.thumbnail((500, 500))
-    im.save(path)
 
 
 def call_api(prompt, files, seed):
@@ -172,6 +177,23 @@ def remove_background(im):
             nx, ny = x + dx, y + dy
             if 0 <= nx < w and 0 <= ny < h and not seen[ny * w + nx]:
                 stack.append((nx, ny))
+    # Poches de fond enfermées dans la voiture, que le remplissage depuis les bords n'atteint pas :
+    # vues à travers les vitres, elles deviennent du verre sombre ; sous la caisse (entre les
+    # roues), elles deviennent transparentes.
+    rows = [y for y in range(h) if any(px[x, y][3] for x in range(w))]
+    if rows:
+        low = rows[0] + (rows[-1] - rows[0]) * 0.7
+        for y in range(rows[0], rows[-1] + 1):
+            for x in range(w):
+                c = px[x, y]
+                if not c[3]:
+                    continue
+                # Vert franc seulement : l'ombre d'une carrosserie crème tire elle aussi sur le vert.
+                pocket = (c[1] > c[0] * 1.3 and c[1] > c[2] * 1.6 and c[1] > 110) if green else min(c[:3]) > 238
+                if pocket and y > low:
+                    px[x, y] = (0, 0, 0, 0)
+                elif pocket and green:
+                    px[x, y] = (34, 38, 46, 255)
     # Petites îles isolées (bruit) : on ne garde que le plus grand morceau.
     alpha = [[px[x, y][3] > 0 for x in range(w)] for y in range(h)]
     label = [[0] * w for _ in range(h)]
@@ -387,6 +409,8 @@ def main():
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     force = "--force" in sys.argv
     only_process = "--only-process" in sys.argv
+    # --seed=N : autre tirage pour refaire une voiture ratée.
+    seed0 = next((int(a.split("=")[1]) for a in sys.argv if a.startswith("--seed=")), 100)
     os.makedirs(OUT_RAW, exist_ok=True)
     os.makedirs(OUT, exist_ok=True)
     for car in catalog():
@@ -394,14 +418,12 @@ def main():
             continue
         raw = os.path.join(OUT_RAW, car["id"] + ".jpg")
         if not only_process and (force or not os.path.exists(raw)):
-            subj = os.path.join(OUT_RAW, car["id"] + "_subject.png")
-            render_subject(car, subj)
-            for attempt in range(5):
+            for attempt in range(10):
                 try:
-                    data = call_api(prompt_for(car), {"input_image_0": subj, "input_image_1": STYLE}, 100 + attempt * 17 + len(car["id"]))
+                    data = call_api(prompt_for(car), {"input_image_0": guide(car["body"]), "input_image_1": STYLE}, seed0 + attempt * 17 + len(car["id"]))
                     open(raw, "wb").write(data)
                     break
-                except RuntimeError as e:
+                except (RuntimeError, OSError, ValueError) as e:
                     print("  %s : nouvel essai (%s)" % (car["id"], str(e)[:90]))
             else:
                 print("ÉCHEC", car["id"])

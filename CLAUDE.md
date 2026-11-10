@@ -6,14 +6,14 @@ Le document de game design (GDD) fait foi : https://claude.ai/artifact/WgkvZZaTt
 ## Stack
 - Appli : Godot 4 (GDScript), 2D uniquement. Dev sur PC Windows, test sur iPhone via l'export web, App Store plus tard depuis un Mac.
 - Serveur : Supabase (Auth, Postgres + RLS, Storage, Edge Functions).
-- IA : reconnaissance par Gemini 3.1 Flash-Lite (≈ 0,0006 $ la photo) ; photo de référence du modèle exact prise sur Wikipédia (gratuit) ; pixel art par FLUX.2 [klein] 4B (gratuit/≈ 0,0004 $) avec référence + planche de style + photo du joueur, consigne « sans logo » (plaque sans importance). Un sprite par modèle, mis en cache, recoloré (`generate_cars.recolor`). Voir `docs/choix-modele-image.md` et `tools/ai/spot_photo.py`.
+- IA : reconnaissance par Gemini 3.1 Flash-Lite (≈ 0,0006 $ la photo) ; pixel art par FLUX.2 [klein] 4B (gratuit/≈ 0,0004 $) avec trois images : la photo du joueur, la planche de style (`tools/ai/style_sheet.png`) et la silhouette de la carrosserie comme guide d'angle. Jamais de nom de marque ou de modèle dans la consigne quand une photo est jointe (le filtre de Cloudflare refuse tout) ; consigne « sans logo », plaque sans importance. Un sprite par modèle, mis en cache, recoloré (`generate_cars.recolor`). Voir `docs/choix-modele-image.md` et `tools/ai/spot_photo.py`.
 - Pubs : AdMob. Achats : RevenueCat.
 
 ## Règles non négociables
 - L'appli affiche, le serveur décide : tout calcul d'argent faisant foi est côté serveur.
 - Revenus idle calculés depuis l'heure de la dernière récolte, jamais en continu.
 - Aucune clé d'API dans l'appli.
-- Pas de 3D affichée, pas de rotation : sprites fixes vue 3/4 avant, recolorés.
+- Pas de 3D affichée, pas de rotation : sprites fixes, tous dans le même angle que les silhouettes (3/4 avant, caméra basse à hauteur de phare, avant à gauche ; pas de vue de dessus ni d'isométrie), recolorés.
 - Le nom réel d'une voiture n'est jamais affiché : on passe par la base de noms modifiés.
 - Économie : coût ×1,10 par niveau, revenu linéaire, ×2 aux paliers 25/50/100/150/200 ; les échelles s'additionnent, jamais ne se multiplient. Tout changement d'équilibrage passe par une simulation (agent economy-balancer).
 - DA : pixel art sombre, rue de nuit, noir charbon + orange/rouge/or, pas de bleu dominant.
@@ -48,10 +48,11 @@ Mise à neuf : chaque voiture spottée arrive grise (silhouette de sa carrosseri
 - `tools/car_sheet.gd` produit une planche de toutes les carrosseries pour relire le rendu des voitures.
 
 ## Sprites de voitures générés (mise à neuf)
-- Une voiture mise à neuf s'affiche avec son sprite généré `assets/cars/<id>.png` (~168 px, + `_s` vignette, `_n` reliefs pour l'éclairage, `.json` points d'ancrage) ; sans sprite, on retombe sur `car_renderer.gd`. Les silhouettes grises (voitures bloquées) restent celles de `car_renderer.gd`.
-- Générer : `CF_ACCOUNT_ID=... GODOT=... python3 tools/ai/generate_cars.py [ids] [--force] [--only-process]`. Le script rend la carrosserie (guide d'angle et de couleur), envoie aussi `tools/ai/style_sheet.png` comme référence de style, puis nettoie en vrai pixel art (détourage, grille nette, palette 48 couleurs, contour 1 px). Les voitures claires sont générées sur fond vert pour un détourage propre.
+- Une voiture mise à neuf s'affiche avec son sprite généré `assets/cars/<id>.png` (~168 px, + `_s` vignette, `_n` reliefs pour l'éclairage, `.json` points d'ancrage). Une voiture pas encore mise à neuf s'affiche avec la silhouette grise de sa carrosserie, `assets/silhouettes/<carrosserie>.png` (même format). Sans image, on retombe sur `car_renderer.gd`.
+- `tools/ai/make_references.py` découpe les deux planches de `tools/ai/src/` (silhouettes grises, voitures en couleur) : silhouettes du jeu, guides d'angle `tools/ai/guides/`, planche de style.
+- Générer : `CF_ACCOUNT_ID=... python3 tools/ai/generate_cars.py [ids] [--force] [--only-process] [--seed=N]`. Le script envoie la silhouette de la carrosserie (guide d'angle, de taille et de position) et la planche de style, puis nettoie en vrai pixel art (détourage, grille nette, palette 48 couleurs, contour 1 px). Les voitures claires sont générées sur fond vert pour un détourage propre. `--seed=N` refait une voiture ratée avec un autre tirage.
 - Le jeton Cloudflare n'est jamais dans le dépôt ; ≈ 37 Neurons par voiture (10 000 gratuits par jour). Le filtre de Cloudflare bloque parfois une image à tort : le script réessaie avec une autre graine.
-- Phase 1 : la même consigne partira de la photo du joueur (image 0) via un Worker.
+- Phase 1 : la même chaîne part de la photo du joueur (`tools/ai/spot_photo.py`) via un Worker. Une photo de face ou de 3/4 avant donne une voiture ressemblante ; une photo de dos donne une voiture générique (l'avant est inventé).
 
 ## Version web
 - `export_presets.cfg` : préréglage « Web » sans threads (Safari iPhone, hébergement simple). Export : `godot --headless --path . --export-release "Web" build/web/index.html`.
