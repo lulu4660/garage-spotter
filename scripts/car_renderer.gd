@@ -141,6 +141,16 @@ static func render(body: String, color: Color, tier: int, scale: float, locked :
 		if not ai.is_empty():
 			return ai
 	if locked:
+		# Voiture pas encore mise à neuf : silhouette grise dessinée de sa carrosserie.
+		var sil := _load_sprite(SILHOUETTE_DIR, body, scale >= 1.6)
+		if not sil.is_empty():
+			return sil
+	return _procedural(body, color, tier, scale, locked)
+
+
+## Rendu en volume calculé (secours quand il n'y a ni sprite ni silhouette).
+static func _procedural(body: String, color: Color, tier: int, scale: float, locked := false) -> Dictionary:
+	if locked:
 		color = LOCKED_BODY
 		tier = 0
 	var key := "%s|%s|%d|%.2f|%s" % [body, color.to_html(false), tier, scale, locked]
@@ -163,22 +173,30 @@ const SPRITE_DIR := "res://assets/cars/"
 ## Sprite généré d'un modèle (grand ou vignette), au même format que render() ;
 ## vide s'il n'existe pas.
 static func sprite(model: String, big := true) -> Dictionary:
-	var key := "ai|%s|%s" % [model, big]
+	return _load_sprite(SPRITE_DIR, model, big)
+
+
+const SILHOUETTE_DIR := "res://assets/silhouettes/"
+
+
+## Charge un sprite dessiné (voiture générée ou silhouette) et ses points d'ancrage.
+static func _load_sprite(dir: String, model: String, big := true) -> Dictionary:
+	var key := "ai|%s|%s|%s" % [dir, model, big]
 	if _cache.has(key):
 		return _cache[key]
-	var path := SPRITE_DIR + model + ("" if big else "_s") + ".png"
+	var path := dir + model + ("" if big else "_s") + ".png"
 	if not ResourceLoader.exists(path):
 		return {}
 	var tex: Texture2D = load(path)
 	var info := {"anchor": [tex.get_width() * 0.5, tex.get_height() * 0.88], "ground": tex.get_height() - 2, "exhaust": [tex.get_width() - 10, tex.get_height() - 6], "lamps": []}
-	var meta_path := SPRITE_DIR + model + ".json"
+	var meta_path := dir + model + ".json"
 	if big and FileAccess.file_exists(meta_path):
 		var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(meta_path))
 		if typeof(parsed) == TYPE_DICTIONARY:
 			info = parsed
 	var normal: Texture2D = null
-	if big and ResourceLoader.exists(SPRITE_DIR + model + "_n.png"):
-		normal = load(SPRITE_DIR + model + "_n.png")
+	if big and ResourceLoader.exists(dir + model + "_n.png"):
+		normal = load(dir + model + "_n.png")
 	var spec := Image.create(tex.get_width(), tex.get_height(), false, Image.FORMAT_RGBA8)
 	spec.fill(Color(0.6, 0.6, 0.6, 1.0))
 	var lamps: Array[Vector2] = []
@@ -200,7 +218,7 @@ static func sprite(model: String, big := true) -> Dictionary:
 
 
 static func fit_scale(body: String, box: Vector2, lo := 1.0, hi := 3.2) -> float:
-	var ref: Dictionary = render(body, LOCKED_BODY, 0, 1.0, true)
+	var ref: Dictionary = _procedural(body, LOCKED_BODY, 0, 1.0, true)
 	var sz := Vector2(ref["texture"].get_size())
 	return clampf(snappedf(minf(box.x / sz.x, box.y / sz.y), 0.1), lo, hi)
 

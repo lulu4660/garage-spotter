@@ -100,9 +100,11 @@ func _layout() -> void:
 	if _car == null or size.x <= 0.0:
 		return
 	_scale = CarRenderer.fit_scale(body, Vector2(size.x * 0.86, size.y * 0.80), 1.0, 3.0)
-	var after: Dictionary = CarRenderer.render(body, color, 0, _scale, false, model)
-	var before: Dictionary = CarRenderer.render(body, color, 0, _scale, true)
-	var ground := Vector2(size.x * 0.5, size.y * 0.66)
+	# Les sprites dessinés ont deux tailles fixes (168 et 72 px) : la grande dès qu'elle tient.
+	var s := maxf(_scale, 1.6) if size.x >= 190.0 else _scale
+	var after: Dictionary = CarRenderer.render(body, color, 0, s, false, model)
+	var before: Dictionary = CarRenderer.render(body, color, 0, s, true)
+	var ground := Vector2(size.x * 0.5, size.y * 0.76)
 	for pair in [[_car, after], [_before, before]]:
 		var rect: TextureRect = pair[0]
 		var d: Dictionary = pair[1]
@@ -144,7 +146,7 @@ func _process(delta: float) -> void:
 func _draw() -> void:
 	# Plateau : halo à la couleur de la rareté une fois révélée, gris avant.
 	var glow: Color = PixelUI.RARITY[rarity].lerp(Color("55565c"), 1.0 - progress)
-	var c := Vector2(floorf(size.x * 0.5), floorf(size.y * 0.66))
+	var c := Vector2(floorf(size.x * 0.5), floorf(size.y * 0.76))
 	var rx := floorf(size.x * 0.42)
 	var ry := floorf(size.y * 0.13)
 	for g in 3:

@@ -4,19 +4,19 @@
   1. Détection de la voiture (DETR, Workers AI) et recadrage.
   2. Reconnaissance sur le recadrage (modèle de vision, Workers AI) : marque, modèle,
      génération, carrosserie, couleur, modifications visibles, plaque(s), score « vraie voiture ».
-  3. Photo de référence du modèle exact, cherchée sur Wikipédia (photo de 3/4 avant de l'article
-     du modèle ou de sa génération ; gratuit, à mettre en cache côté serveur, une par modèle).
-  4. Génération du sprite (FLUX.2 [klein] 4B, gratuit) : image 0 = la référence (forme exacte du
-     modèle), image 1 = la planche de style, image 2 = la photo du joueur (couleur, modifications).
-     Consigne : ne pas dessiner le logo. Une plaque en pixel art est illisible : sans importance.
-  5. Retouche (facultative, --cleanup ; FLUX.2 [klein] 4B en mode édition) : on renvoie l'image générée et on fait effacer
+  3. Génération du sprite (FLUX.2 [klein] 4B, gratuit) : image 0 = la photo du joueur (la voiture
+     à dessiner, sa couleur, ses modifications), image 1 = la planche de style, image 2 = la
+     silhouette grise de sa carrosserie (angle bas de 3/4 avant, taille, position : le même que
+     toutes les voitures du jeu). Consigne : ne pas dessiner le logo. Une plaque en pixel art
+     est illisible : sans importance.
+  4. Retouche (facultative, --cleanup ; FLUX.2 [klein] 4B en mode édition) : on renvoie l'image générée et on fait effacer
      tout logo, badge, texte ou plaque restant, sans rien changer d'autre.
-  6. Nettoyage en pixel art (mêmes étapes que generate_cars.py).
+  5. Nettoyage en pixel art (mêmes étapes que generate_cars.py).
 La copie de la photo gardée pour l'album, elle, est floutée (plaques) : la photo intacte ne sert
 qu'au traitement et n'est jamais stockée.
 
 Usage :
-  CF_ACCOUNT_ID=... [GEMINI_API_KEY=...] python3 tools/ai/spot_photo.py photo.jpg sortie/ [--identity "Honda Civic 11th gen hatchback"] [--no-reference] [--cleanup]
+  CF_ACCOUNT_ID=... [GEMINI_API_KEY=...] python3 tools/ai/spot_photo.py photo.jpg sortie/ [--identity "Honda Civic 11th gen hatchback"] [--cleanup]
 Les photos et résultats restent hors du dépôt. En production, cette chaîne tournera dans un
 Worker Cloudflare (clé côté serveur), jamais dans l'appli.
 """
@@ -28,7 +28,6 @@ import sys
 import random
 import time
 import urllib.error
-import urllib.parse
 import urllib.request
 
 from PIL import Image, ImageFilter
@@ -147,54 +146,18 @@ def blur_plates(crop, boxes):
     return img
 
 
-WIKI_UA = {"User-Agent": "GarageSpotterPrototype/0.1 (https://github.com/lulu4660/garage-spotter)"}
-
-
-def _wiki_get(url):
-    """Wikimedia limite le débit des adresses partagées : on respecte son délai d'attente."""
-    for _ in range(8):
-        try:
-            with urllib.request.urlopen(urllib.request.Request(url, headers=WIKI_UA), timeout=30) as r:
-                return r.read()
-        except urllib.error.HTTPError as e:
-            if e.code != 429:
-                raise
-            time.sleep(int(e.headers.get("retry-after") or 30) + 2)
-    raise RuntimeError("Wikimedia : trop de requêtes")
-
-
-def reference_photo(query, path):
-    """Photo de référence du modèle : l'image principale de l'article Wikipédia (en anglais) le plus
-    proche, en général une vue de 3/4 avant de la bonne génération. Renvoie le titre de l'article."""
-    url = "https://en.wikipedia.org/w/api.php?" + urllib.parse.urlencode({
-        "action": "query", "format": "json", "generator": "search", "gsrsearch": query, "gsrlimit": 3,
-        "prop": "pageimages", "piprop": "thumbnail", "pithumbsize": 500})
-    pages = sorted(json.loads(_wiki_get(url)).get("query", {}).get("pages", {}).values(), key=lambda p: p["index"])
-    page = next((p for p in pages if "thumbnail" in p), None)
-    if page is None:
-        return None
-    open(path, "wb").write(_wiki_get(page["thumbnail"]["source"]))
-    small = Image.open(path).convert("RGB")
-    small.thumbnail((500, 500))
-    small.save(path, "PNG")
-    return page["title"]
-
-
 BODY_EN = {"citadine": "small hatchback", "compacte": "hatchback", "berline": "sedan", "break": "estate", "4x4": "off-roader",
            "suv": "SUV", "monospace": "MPV", "combi": "van", "fourgon": "van", "coupe": "coupe", "fastback": "fastback",
            "sportback": "sportback", "cabriolet": "convertible", "roadster": "roadster", "pickup": "pickup truck", "supercar": "supercar"}
 
 
 def car_name(car, identity=None):
-    """Nom pour la consigne : marque, modèle, génération et carrosserie, sans la motorisation
-    (« e:HEV », « TDI »…), qui n'aide pas le dessin et déclenche plus souvent le filtre."""
+    """Description pour la consigne : couleur et carrosserie seulement. Le nom de la marque ou du
+    modèle fait refuser l'image par le filtre de Cloudflare dès qu'une photo est jointe (0 essai
+    réussi sur 6 avec le nom, 6 sur 6 sans) : c'est la photo qui porte l'identité de la voiture."""
     if identity:
         return " ".join(identity.split())
-    gen = str(car.get("generation") or "")
-    if gen and "gen" not in gen.lower():
-        gen += " generation"
-    name = "%s %s %s %s" % (car.get("make", ""), car.get("model", ""), gen, BODY_EN.get(car.get("body_type"), ""))
-    return " ".join(name.split())
+    return " ".join(("%s %s" % (car.get("color_name", ""), BODY_EN.get(car.get("body_type"), "car"))).split())
 
 
 def is_light_hex(hexa):
@@ -205,38 +168,23 @@ def is_light_hex(hexa):
     return (max(r, g, b) + min(r, g, b)) / 510 > 0.6 and max(r, g, b) - min(r, g, b) < 60
 
 
-def reference_prompt(car, identity=None):
-    """Pas de code couleur hexadécimal dans la consigne : il déclenche souvent le filtre de Cloudflare.
-    Consigne avec référence : image 0 = photo du modèle exact, 1 = planche de style, 2 = photo du joueur."""
+def photo_prompt(car, identity=None):
+    """Consigne : image 0 = photo du joueur (la voiture à dessiner), 1 = planche de style,
+    2 = silhouette de la carrosserie (angle, taille, position).
+    Pas de code couleur hexadécimal ni de motorisation : ils déclenchent le filtre de Cloudflare."""
     mods = [m for m in car.get("visible_modifications") or [] if m]
     bg = "Plain solid bright green background (#00c000)" if is_light_hex(car.get("color_hex")) else "Plain white background"
     return (
-        "Image 0 is a reference photo of the exact car model to draw: a %s. Redraw THIS exact car as a detailed modern pixel art sprite: "
-        "same body shape, headlights, grille, bumpers, windows, mirrors and proportions, so that a car fan recognises the model at once. "
-        "Image 2 is the player's photo of the very same car: copy its paint colour (%s)%s. "
-        "Three-quarter FRONT view, front of the car on the LEFT side of the picture. "
+        "Pixel art sprite of the car shown in image 0, a real photo of a %s: redraw THIS exact car, with its body shape, lights, grille, "
+        "bumpers, windows, wheels and its %s paint%s, so that a car fan recognises the model at once. "
+        "Image 2 is a dark grey placeholder: keep exactly its camera angle, its size and its position in the picture (%s), even if the photo "
+        "shows the car from another side. "
         "IMPORTANT: do NOT draw the brand logo or emblem anywhere: where the logo sits on the grille, the bonnet, the boot or the wheel centres, "
         "draw plain grille mesh or plain body paint instead, with no symbol and no lettering. "
-        "Image 1 is a sheet of example sprites: use only its drawing style, never copy one of its cars: high-detail pixel art like a premium mobile game, "
-        "crisp dark outline, glossy paint with sharp highlights, tinted windows, detailed alloy wheels. %s, no ground shadow, no scenery."
-        % (car_name(car, identity), car.get("color_name", ""),
-           (" and its visible modifications: %s" % ", ".join(mods)) if mods else "", bg))
-
-
-def generation_prompt(car, identity=None):
-    name = identity or "%s %s %s %s" % (car.get("make", ""), car.get("model", ""), car.get("generation", "") or "", car.get("variant") or "")
-    mods = [m for m in car.get("visible_modifications") or [] if m]
-    mods_txt = ("Keep its visible modifications: %s. " % ", ".join(mods)) if mods else ""
-    return (
-        "Detailed modern pixel art sprite of this exact car: a %s %s (%s). Image 0 is a real street photo of this very car "
-        "(seen from the %s): reproduce its exact model, generation, body shape, paint colour and wheels. %s"
-        "Do NOT draw the real brand logo: replace every logo or emblem with a small plain blank badge, and draw no license plate. "
-        "Draw the whole car in a three-quarter FRONT view, front of the car on the LEFT side of the picture, even if the photo shows another side. "
-        "Image 1 is a sheet of example sprites: use only its drawing style, never copy one of its cars or colours: high-detail pixel art like a premium "
-        "mobile game, crisp dark outline, glossy paint with sharp highlights, tinted windows, detailed alloy wheels and headlights, plain white background, "
-        "no ground shadow, no scenery. No logos, no badges, no emblems, no text, no license plate."
-        % (car.get("color_name", ""), " ".join(name.split()), car.get("body_type", ""), car.get("view", "photo"), mods_txt)
-    )
+        "Image 1 is a sheet of example sprites: use only its drawing style, never copy one of its cars: %s. "
+        "%s, no ground shadow, no scenery."
+        % (car_name(car, identity), car.get("color_name", ""), (", and its visible modifications: %s" % ", ".join(mods)) if mods else "",
+           gc.VIEW, gc.STYLE_TEXT, bg))
 
 
 CLEANUP = ("Edit this pixel art car sprite: remove every brand logo, emblem, badge, lettering and license plate "
@@ -281,21 +229,9 @@ def main():
     ref.thumbnail((500, 500))
     ref_path = os.path.join(out_dir, "photo_ref.png")
     ref.save(ref_path)
-    model_ref = os.path.join(out_dir, "model_ref.png")
-    title = None if "--no-reference" in sys.argv else reference_photo(car_name(car, identity), model_ref)
-    print("Référence :", title)
-    if title:
-        prompt = reference_prompt(car, identity)
-        files = {"input_image_0": model_ref, "input_image_1": gc.STYLE, "input_image_2": ref_path}
-    else:
-        prompt = generation_prompt(car, identity)
-        files = {"input_image_0": ref_path, "input_image_1": gc.STYLE}
+    prompt = photo_prompt(car, identity)
+    files = {"input_image_0": ref_path, "input_image_1": gc.STYLE, "input_image_2": gc.guide(car.get("body_type", "compacte"))}
     for attempt in range(16):
-        if attempt == 10 and "input_image_2" in files:
-            # Le filtre de Cloudflare bloque souvent à tort quand la photo du joueur est jointe :
-            # on garde la référence et la planche, la couleur passe par le texte seul.
-            files.pop("input_image_2")
-            prompt = prompt.replace("Image 2 is the player's photo of the very same car: copy its paint colour", "Paint colour")
         try:
             data = gc.call_api(prompt, files, random.randrange(1, 1 << 30))
             break
@@ -313,7 +249,7 @@ def main():
     print("Logos / plaques effacés :", gc.scrub_badges(big))
     big.save(os.path.join(out_dir, "sprite.png"))
     gc.normal_map(big).save(os.path.join(out_dir, "sprite_n.png"))
-    json.dump({"recognition": car, "identity": identity, "reference": title, "prompt": prompt, "meta": gc.meta(big)}, open(os.path.join(out_dir, "result.json"), "w"), ensure_ascii=False, indent=1)
+    json.dump({"recognition": car, "identity": identity, "prompt": prompt, "meta": gc.meta(big)}, open(os.path.join(out_dir, "result.json"), "w"), ensure_ascii=False, indent=1)
     print("Sprite :", os.path.join(out_dir, "sprite.png"))
 
 
