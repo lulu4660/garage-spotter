@@ -17,6 +17,28 @@ const Fx = preload("res://scripts/fx.gd")
 const DAY := preload("res://assets/map/day.png")
 const LIGHT := preload("res://assets/map/light.png")
 const FRONT := preload("res://assets/map/front.png")
+## Petites voitures des clients (tools/map/make_cars.py) : une rangée par modèle, une colonne par direction.
+const CARS := preload("res://assets/map/cars.png")
+const CARS_PAINT := preload("res://assets/map/cars_paint.png")
+const DIR_COL := {"ne": 0, "se": 1, "sw": 2, "nw": 3}
+
+## Voitures : la peinture grise de l'atlas prend la couleur passée en modulate,
+## et tout s'assombrit la nuit comme la ville.
+const CAR_SHADER := """
+shader_type canvas_item;
+uniform sampler2D paint_tex : filter_nearest;
+uniform vec3 ambient = vec3(0.296, 0.3, 0.427);
+uniform float night = 0.0;
+varying vec4 tint;
+void vertex() { tint = COLOR; }
+void fragment() {
+	vec4 c = texture(TEXTURE, UV);
+	float g = dot(c.rgb, vec3(0.3333));
+	vec3 col = mix(c.rgb, tint.rgb * g * 2.0, step(0.5, texture(paint_tex, UV).r));
+	col *= mix(vec3(1.0), ambient * 1.25, night);
+	COLOR = vec4(col, c.a);
+}
+"""
 
 signal building_tapped(stage: int)
 
@@ -93,6 +115,9 @@ var _mat: ShaderMaterial
 var _front: TextureRect
 var _front_mat: ShaderMaterial
 var _cars_layer: Control
+var _car_mat: ShaderMaterial
+var _shadows: Control
+var _car_cell := Vector2(32, 26)
 var _glow: Control
 var _rain_layer: Control
 var _tags: Array[PanelContainer] = []
@@ -137,6 +162,17 @@ func _ready() -> void:
 	add_child(_map)
 	_cars_layer = Control.new()
 	_cars_layer.draw.connect(_draw_cars)
+	var csh := Shader.new()
+	csh.code = CAR_SHADER
+	_car_mat = ShaderMaterial.new()
+	_car_mat.shader = csh
+	_car_mat.set_shader_parameter("paint_tex", CARS_PAINT)
+	_cars_layer.material = _car_mat
+	_shadows = Control.new()
+	_shadows.draw.connect(_draw_shadows)
+	var meta: Variant = JSON.parse_string(FileAccess.get_file_as_string("res://assets/map/cars.json"))
+	if typeof(meta) == TYPE_DICTIONARY:
+		_car_cell = Vector2(meta["cell"][0], meta["cell"][1])
 	_front = TextureRect.new()
 	_front.texture = DAY
 	_front.size = _map.size
@@ -150,7 +186,7 @@ func _ready() -> void:
 	_glow.draw.connect(_draw_glow)
 	_rain_layer = Control.new()
 	_rain_layer.draw.connect(_draw_rain)
-	for c: Control in [_cars_layer, _glow, _rain_layer]:
+	for c: Control in [_shadows, _cars_layer, _glow, _rain_layer]:
 		c.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		c.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 		add_child(c)
@@ -198,7 +234,7 @@ func spawn(count: int) -> void:
 		if _cars.size() >= 40:
 			break
 		var lane := Vector2(0, _rng.randi_range(-1, 1))
-		_cars.append({"path": path, "seg": 0, "pos": path[0] + lane, "lane": lane, "delay": queued + 0.28 * (i + 1), "speed": 0.0,
+		_cars.append({"path": path, "seg": 0, "pos": path[0] + lane, "lane": lane, "delay": queued + 0.32 * (i + 1), "speed": 0.0, "model": _rng.randi() % 2,
 			"color": car_colors[_rng.randi() % car_colors.size()]})
 
 
@@ -288,6 +324,8 @@ func _process(delta: float) -> void:
 		if r["p"].y > 1.0:
 			r["p"] = Vector2(_rng.randf(), 0.0)
 	_place_tags()
+	_car_mat.set_shader_parameter("night", _night)
+	_shadows.queue_redraw()
 	_cars_layer.queue_redraw()
 	_glow.queue_redraw()
 	_rain_layer.queue_redraw()
@@ -329,42 +367,28 @@ func _move_cars(delta: float) -> void:
 	_cars = _cars.filter(func(c: Dictionary) -> bool: return c["seg"] < c["path"].size() - 1)
 
 
-## Petite voiture isométrique (≈ 16 × 10 px) : ombre, caisse, vitres, toit, phares.
-func _draw_car(at: Vector2, dir: Vector2, col: Color) -> void:
-	# Axes isométriques de la map : on garde la direction la plus proche des quatre.
-	var fwd := Vector2(1.0 if dir.x >= 0.0 else -1.0, 0.5 if dir.y >= 0.0 else -0.5).normalized()
-	var side := Vector2(fwd.y, -fwd.x) * Vector2(2.0, 0.5)
-	side = side.normalized() * Vector2(1.0, 0.5).length()
-	if side.y < 0.0:
-		side = -side
-	var l := 7.5
-	var w := 3.6
-	var p := at.round()
-	var h := Vector2(0, -3)
-	var fl := p + fwd * l - side * w
-	var fr := p + fwd * l + side * w
-	var bl := p - fwd * l - side * w
-	var br := p - fwd * l + side * w
-	var line := Color(0.05, 0.04, 0.07)
-	_cars_layer.draw_colored_polygon(PackedVector2Array([fl + Vector2(1, 2), fr + Vector2(1, 2), br + Vector2(1, 2), bl + Vector2(1, 2)]), Color(0, 0, 0, 0.4))
-	# Flancs (sombres), dessus (couleur), habitacle vitré, toit.
-	_cars_layer.draw_colored_polygon(PackedVector2Array([fr, br, br + h, fr + h]), col.darkened(0.45))
-	_cars_layer.draw_colored_polygon(PackedVector2Array([fl, fr, fr + h, fl + h]), col.darkened(0.25))
-	_cars_layer.draw_colored_polygon(PackedVector2Array([fl + h, fr + h, br + h, bl + h]), col)
-	var k := h * 2.0
-	var cab := PackedVector2Array([p + k + fwd * l * 0.35 - side * w * 0.85, p + k + fwd * l * 0.35 + side * w * 0.85,
-		p + k - fwd * l * 0.65 + side * w * 0.85, p + k - fwd * l * 0.65 - side * w * 0.85])
-	_cars_layer.draw_colored_polygon(cab, Color("26303f"))
-	var roof := PackedVector2Array([p + k + fwd * l * 0.1 - side * w * 0.7, p + k + fwd * l * 0.1 + side * w * 0.7,
-		p + k - fwd * l * 0.55 + side * w * 0.7, p + k - fwd * l * 0.55 - side * w * 0.7])
-	_cars_layer.draw_colored_polygon(roof, col.lightened(0.15))
-	_cars_layer.draw_polyline(PackedVector2Array([fl, fr, br, br + h, bl + h, fl + h, fl]), line, 1.0)
-	# Roues : deux taches sombres au bas du flanc visible.
-	for t: float in [0.6, -0.6]:
-		_cars_layer.draw_rect(Rect2((p + fwd * l * t + side * w).round() - Vector2(1, 0), Vector2(2, 2)), line)
-	var lamp := Color(1.0, 0.96, 0.8) if _night > 0.3 else Color(0.9, 0.9, 0.85)
-	_cars_layer.draw_rect(Rect2((fl + h * 0.5).round(), Vector2(1, 1)), lamp)
-	_cars_layer.draw_rect(Rect2((fr + h * 0.5).round(), Vector2(1, 1)), lamp)
+## Direction de l'atlas la plus proche du mouvement (les rues de la map suivent les diagonales).
+func _dir_name(dir: Vector2) -> String:
+	if dir.x >= 0.0:
+		return "ne" if dir.y < 0.0 else "se"
+	return "nw" if dir.y < 0.0 else "sw"
+
+
+func _draw_car(at: Vector2, dir: Vector2, col: Color, model: int) -> void:
+	var src := Rect2(Vector2(DIR_COL[_dir_name(dir)], model) * _car_cell, _car_cell)
+	var pos := (at - Vector2(_car_cell.x * 0.5, _car_cell.y - 3.0)).round()
+	_cars_layer.draw_texture_rect_region(CARS, Rect2(pos, _car_cell), src, col)
+
+
+## Ombres douces sous les voitures (couche à part : le shader des voitures ne s'y applique pas).
+func _draw_shadows() -> void:
+	var cam := _cam.round()
+	var dot := Fx.soft_dot()
+	for c in _cars:
+		if c["delay"] > 0.0:
+			continue
+		var p: Vector2 = c["pos"] - cam
+		_shadows.draw_texture_rect(dot, Rect2(p - Vector2(13, 5), Vector2(26, 10)), false, Color(0, 0, 0, 0.45))
 
 
 func _draw_cars() -> void:
@@ -375,7 +399,7 @@ func _draw_cars() -> void:
 			visible.append(c)
 	visible.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return a["pos"].y < b["pos"].y)
 	for c in visible:
-		_draw_car(c["pos"] - cam, c.get("dir", Vector2(1, -0.5)), c["color"])
+		_draw_car(c["pos"] - cam, c.get("dir", Vector2(1, -0.5)), c["color"], int(c["model"]))
 
 
 func _draw_glow() -> void:
