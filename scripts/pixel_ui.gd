@@ -3,9 +3,12 @@
 ## DA du GDD : noir charbon et métal sombre, accents orange / rouge / or.
 extends RefCounted
 
+const SegBar = preload("res://scripts/seg_bar.gd")
+const Fx = preload("res://scripts/fx.gd")
+
 # --- Couleurs -----------------------------------------------------------
 
-const BG := Color("0e0d12")
+const BG := Color("121017")
 const INK := Color("0b0a0e")
 const TEXT := Color("f1ebe0")
 const MUTED := Color("8f8a94")
@@ -63,27 +66,43 @@ static func label(text: String, style := "main", color := TEXT, wrap := false) -
 	return l
 
 
-# --- Cadres biseautés ---------------------------------------------------
+# --- Cadres et boutons en relief ------------------------------------------
+## Chaque cadre est une petite image 24 × 24 générée en code puis étirée en
+## 9 tranches : coins arrondis, contour sombre, reflet en haut. Les boutons ont
+## une tranche visible en bas (« lip ») : enfoncés, ils descendent de 2 pixels.
 
 const FRAMES := {
-	# fill_top, fill_bottom, highlight, shadow, border (bordure colorée ou vide)
-	"panel": ["302f37", "1f1e24", "4b4a54", "141318", ""],
-	"card": ["383741", "26252c", "565560", "17161b", ""],
-	"inset": ["121116", "19181e", "0a090d", "2a2930", ""],
-	"chip": ["26252c", "1b1a20", "3f3e48", "111015", ""],
-	"button": ["4a4954", "2f2e36", "6b6a76", "1c1b21", ""],
-	"button_down": ["2f2e36", "3a3942", "1c1b21", "4a4954", ""],
-	"orange": ["ffa04a", "e05a10", "ffd59a", "8a3405", ""],
-	"orange_down": ["d9580f", "f07a2a", "8a3405", "ffb36a", ""],
-	"disabled": ["2a2930", "222127", "33323a", "18171c", ""],
-	"vault": ["1d1a16", "100e0d", "3a3020", "08070a", "5a4418"],
-	"window": ["2b2a32", "1b1a20", "4b4a54", "121116", "5a5964"],
-	"title": ["3a2a1c", "241a14", "6b4a22", "140e0a", "ff7a1a"],
-	"plaque": ["1b1a21", "0f0e13", "33323a", "08070a", "3a3942"],
-	"icon": ["2d2c34", "1c1b21", "45444e", "121116", "ff7a1a"],
+	# dessus, dessous, reflet, ombre, bordure, hauteur de tranche, couleur de tranche, descente, brillant
+	"panel": ["2e2937", "211d29", "4a4358", "16131c", "", 0, "", 0, false],
+	"window": ["2b2634", "1c1923", "4a4358", "121018", "5d5570", 0, "", 0, false],
+	"card": ["37313f", "27222e", "575066", "18151e", "", 0, "", 0, false],
+	"inset": ["110f15", "18151d", "08070b", "2a2631", "", 0, "", 0, false],
+	"chip": ["25212c", "1a1720", "3f394a", "100e14", "", 0, "", 0, false],
+	"button": ["5d566b", "3e3849", "8f879f", "2c2735", "", 3, "1f1b27", 0, true],
+	"button_down": ["3e3849", "4b4559", "2c2735", "5d566b", "", 1, "1f1b27", 2, false],
+	"orange": ["ffae45", "f06414", "ffe6ae", "c9500c", "", 3, "8a2c06", 0, true],
+	"orange_down": ["e8640f", "f58a2e", "b84408", "ffb36a", "", 1, "8a2c06", 2, false],
+	"gold": ["ffd95a", "e89a14", "fff3c0", "b87408", "", 3, "7a4a06", 0, true],
+	"gold_down": ["e09a14", "f2b83a", "a86a06", "ffe08a", "", 1, "7a4a06", 2, false],
+	"owned": ["2a2416", "17130c", "4a3c1c", "0c0a06", "ffc23d", 3, "5a4410", 0, false],
+	"disabled": ["2e2a36", "25212c", "3a3543", "1b1821", "", 3, "15121a", 0, false],
+	"vault": ["211c17", "120f0d", "3f3422", "08070a", "6b5218", 0, "", 0, false],
+	"title": ["3d2b1c", "261b14", "6f4c22", "140e0a", "ff7a1a", 0, "", 0, false],
+	"plaque": ["1c1922", "100e14", "34303d", "08070a", "3f394a", 0, "", 0, false],
+	"icon": ["2f2a38", "1d1a24", "474054", "121018", "ff7a1a", 0, "", 0, false],
 }
+const FRAME_SIZE := 24
+const FRAME_RADIUS := 3.0
 
 static var _frame_cache := {}
+
+
+static func _in_round(x: int, y: int, y0: int, y1: int) -> bool:
+	if y < y0 or y >= y1:
+		return false
+	var p := Vector2(x + 0.5, y + 0.5)
+	var c := Vector2(clampf(p.x, FRAME_RADIUS, FRAME_SIZE - FRAME_RADIUS), clampf(p.y, y0 + FRAME_RADIUS, y1 - FRAME_RADIUS))
+	return p.distance_to(c) <= FRAME_RADIUS
 
 
 static func frame_texture(kind: String, border_override := "") -> ImageTexture:
@@ -91,65 +110,115 @@ static func frame_texture(kind: String, border_override := "") -> ImageTexture:
 	if _frame_cache.has(key):
 		return _frame_cache[key]
 	var spec: Array = FRAMES[kind]
-	var size := 16
-	var img := Image.create(size, size, false, Image.FORMAT_RGBA8)
-	img.fill(Color(0, 0, 0, 0))
-	var top := Color(spec[0])
-	var bottom := Color(spec[1])
-	var hi := Color(spec[2])
-	var sh := Color(spec[3])
+	var n := FRAME_SIZE
+	var top := Color(String(spec[0]))
+	var bottom := Color(String(spec[1]))
+	var hi := Color(String(spec[2]))
+	var sh := Color(String(spec[3]))
 	var border_hex: String = border_override if border_override != "" else spec[4]
 	var has_border := border_hex != ""
-	var inner := 2 if has_border else 1
-	for y in size:
-		for x in size:
-			# Coins coupés de 2 pixels.
-			var cx := mini(x, size - 1 - x)
-			var cy := mini(y, size - 1 - y)
-			if cx + cy < 2:
+	var lip: int = spec[5]
+	var drop: int = spec[7]
+	var relief := lip > 0 or drop > 0
+	var below := (lip + 1) if relief else 0
+	var y0 := drop
+	var y1 := n - below
+	var body := func(x: int, y: int) -> bool: return _in_round(x, y, y0, y1)
+	var solid := func(x: int, y: int) -> bool: return _in_round(x, y, y0, y1) or (lip > 0 and _in_round(x, y, y0 + lip, y1 + lip))
+	var img := Image.create(n, n, false, Image.FORMAT_RGBA8)
+	img.fill(Color(0, 0, 0, 0))
+	for y in n:
+		for x in n:
+			if not solid.call(x, y):
+				if relief and _in_round(x, y, y0 + lip + 1, y1 + lip + 1):
+					img.set_pixel(x, y, Color(0, 0, 0, 0.4))
 				continue
-			var c := top.lerp(bottom, float(y) / (size - 1))
-			if cx == 0 or cy == 0 or cx + cy == 2:
+			var edge := false
+			var ring := false
+			for d: Vector2i in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+				if not solid.call(x + d.x, y + d.y):
+					edge = true
+				elif not solid.call(x + d.x * 2, y + d.y * 2):
+					ring = true
+			for d: Vector2i in [Vector2i(1, 1), Vector2i(-1, 1), Vector2i(1, -1), Vector2i(-1, -1)]:
+				if not solid.call(x + d.x, y + d.y):
+					ring = true
+			var c: Color
+			if edge:
 				c = INK
-			elif has_border and (cx == 1 or cy == 1 or cx + cy == 3):
+			elif not body.call(x, y):
+				# Tranche du bouton.
+				c = Color(String(spec[6]))
+				if not solid.call(x, y + 2):
+					c = c.darkened(0.3)
+			elif has_border and ring:
 				c = Color(border_hex)
-			elif y == inner:
-				c = hi
-			elif y == size - 1 - inner:
-				c = sh
+			else:
+				var yb := y - y0
+				var hb := y1 - y0
+				var first := 2 if has_border else 1
+				if yb == first:
+					c = hi
+				elif not body.call(x, y + 1) or (yb == hb - 2 and lip == 0):
+					c = sh
+				else:
+					c = top.lerp(bottom, float(yb) / (hb - 1))
+					if spec[8] and yb < int(hb * 0.45):
+						c = c.lightened(0.10)
 			img.set_pixel(x, y, c)
 	var tex := ImageTexture.create_from_image(img)
 	_frame_cache[key] = tex
 	return tex
 
 
-## StyleBox 9-slice : les coins restent nets, le dégradé s'étire.
+## StyleBox 9 tranches : les coins restent nets, le dégradé s'étire.
 static func frame(kind: String, pad_x := 6, pad_y := 4, border_override := "") -> StyleBoxTexture:
+	var spec: Array = FRAMES[kind]
+	var lip: int = spec[5]
+	var drop: int = spec[7]
+	var below := (lip + 1) if (lip > 0 or drop > 0) else 0
 	var sb := StyleBoxTexture.new()
 	sb.texture = frame_texture(kind, border_override)
-	for side in [SIDE_LEFT, SIDE_RIGHT, SIDE_TOP, SIDE_BOTTOM]:
-		sb.set_texture_margin(side, 5)
+	sb.set_texture_margin(SIDE_LEFT, 5)
+	sb.set_texture_margin(SIDE_RIGHT, 5)
+	sb.set_texture_margin(SIDE_TOP, 5 + drop)
+	sb.set_texture_margin(SIDE_BOTTOM, 5 + below)
 	sb.content_margin_left = pad_x
 	sb.content_margin_right = pad_x
-	sb.content_margin_top = pad_y
-	sb.content_margin_bottom = pad_y
+	sb.content_margin_top = pad_y + drop
+	sb.content_margin_bottom = pad_y + below
 	return sb
 
 
+## Hauteur prise par le relief d'un bouton sous sa face (tranche + ombre).
+const BUTTON_RELIEF := 4
+
+
 static func style_button(b: Button, kind := "button", text_color := TEXT) -> void:
-	var down := "orange_down" if kind == "orange" else "button_down"
+	var down: String = kind + "_down" if FRAMES.has(kind + "_down") else "button_down"
 	b.add_theme_stylebox_override("normal", frame(kind))
 	b.add_theme_stylebox_override("hover", frame(kind))
-	var pressed := frame(down)
-	pressed.content_margin_top += 1
-	pressed.content_margin_bottom -= 1
-	b.add_theme_stylebox_override("pressed", pressed)
+	b.add_theme_stylebox_override("pressed", frame(down))
 	b.add_theme_stylebox_override("disabled", frame("disabled"))
 	b.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
 	b.add_theme_color_override("font_color", text_color)
 	b.add_theme_color_override("font_hover_color", text_color)
 	b.add_theme_color_override("font_pressed_color", text_color)
 	b.add_theme_color_override("font_disabled_color", MUTED.darkened(0.25))
+	b.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.55))
+	b.add_theme_constant_override("shadow_offset_x", 0)
+	b.add_theme_constant_override("shadow_offset_y", 1)
+	b.add_theme_constant_override("h_separation", 3)
+	# Boutons d'action : un reflet les traverse de temps en temps.
+	b.material = Fx.material("shine") if kind in ["orange", "gold"] else null
+	if not b.has_meta("juice"):
+		b.set_meta("juice", true)
+		# Éclair bref au clic.
+		b.pressed.connect(func() -> void:
+			if not is_instance_valid(b) or not b.is_inside_tree():
+				return
+			b.modulate = Color(1.45, 1.45, 1.45)
+			b.create_tween().tween_property(b, "modulate", Color.WHITE, 0.22))
 
 
 static func make_theme() -> Theme:
@@ -159,6 +228,7 @@ static func make_theme() -> Theme:
 	t.set_stylebox("normal", "Button", frame("button"))
 	t.set_stylebox("hover", "Button", frame("button"))
 	t.set_stylebox("pressed", "Button", frame("button_down"))
+	t.set_stylebox("panel", "PopupPanel", frame("window"))
 	t.set_stylebox("disabled", "Button", frame("disabled"))
 	t.set_stylebox("focus", "Button", StyleBoxEmpty.new())
 	t.set_color("font_color", "Button", TEXT)
@@ -181,24 +251,11 @@ static func make_theme() -> Theme:
 	return t
 
 
-## Barre de progression pixel (fond creusé, remplissage avec reflet).
-static func bar(color: Color, height := 6) -> ProgressBar:
-	var p := ProgressBar.new()
-	p.show_percentage = false
-	p.max_value = 1.0
+## Jauge à segments (voir seg_bar.gd).
+static func bar(color: Color, height := 6) -> SegBar:
+	var p := SegBar.new()
+	p.color = color
 	p.custom_minimum_size = Vector2(0, height)
-	var bg := StyleBoxFlat.new()
-	bg.bg_color = Color("0a090d")
-	bg.border_color = Color("2a2930")
-	bg.border_width_bottom = 1
-	var fill := StyleBoxFlat.new()
-	fill.bg_color = color
-	fill.border_color = color.lightened(0.45)
-	fill.border_width_top = 1
-	fill.border_width_bottom = 1
-	fill.set_border_color(color.lightened(0.45))
-	p.add_theme_stylebox_override("background", bg)
-	p.add_theme_stylebox_override("fill", fill)
 	return p
 
 
@@ -323,5 +380,77 @@ static func icon_rect(name: String) -> TextureRect:
 	t.texture = icon(name)
 	t.stretch_mode = TextureRect.STRETCH_KEEP_CENTERED
 	t.custom_minimum_size = Vector2(16, 16)
+	t.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return t
+
+
+static var _weave: ImageTexture
+
+
+## Trame de fond 8 × 8 : fines diagonales à peine plus claires que le fond.
+static func weave_texture() -> ImageTexture:
+	if _weave == null:
+		var img := Image.create(8, 8, false, Image.FORMAT_RGBA8)
+		img.fill(Color(0, 0, 0, 0))
+		for i in 8:
+			img.set_pixel(i, 7 - i, Color(1, 1, 1, 0.035))
+			img.set_pixel(i, (8 - i) % 8, Color(0, 0, 0, 0.18))
+		_weave = ImageTexture.create_from_image(img)
+	return _weave
+
+
+# --- Pastilles ------------------------------------------------------------
+## Icône dans une pastille ronde en relief (22 × 22), à la couleur donnée.
+
+const BADGE_SIZE := 22
+static var _badge_cache := {}
+
+
+## Couleur de pastille par icône : chaque pièce a la sienne, pour repérer d'un coup d'œil.
+const BADGE_TINTS := {
+	"part0": "d23a30", "part1": "8f96a3", "part2": "d9902a", "part3": "3fae5a", "part4": "3aa39a",
+	"part5": "9a5cd0", "part6": "c9c2b0", "part7": "c8742a", "part8": "ff7a1a", "part9": "38a8c8",
+	"coin": "c98a1a", "garage": "c8642a", "album": "b8862a", "star": "b8862a", "trophy": "b8862a",
+	"restore": "b8862a", "camera": "c8642a", "wrench": "8f96a3", "lock": "5d566b", "flame": "d23a30", "ad": "3fae5a",
+}
+
+
+## tint transparent : couleur choisie d'après l'icône (BADGE_TINTS).
+static func badge_texture(icon_name: String, tint := Color(0, 0, 0, 0)) -> ImageTexture:
+	if tint.a == 0.0:
+		tint = Color(String(BADGE_TINTS.get(icon_name, "5d566b")))
+	var key := icon_name + tint.to_html(false)
+	if _badge_cache.has(key):
+		return _badge_cache[key]
+	var n := BADGE_SIZE
+	var img := Image.create(n, n, false, Image.FORMAT_RGBA8)
+	img.fill(Color(0, 0, 0, 0))
+	var c := Vector2(n * 0.5, n * 0.5 - 0.5)
+	for y in n:
+		for x in n:
+			var p := Vector2(x + 0.5, y + 0.5)
+			var d := p.distance_to(c)
+			if d <= 10.3:
+				var col := tint.darkened(0.25).lerp(tint.darkened(0.6), float(y) / n)
+				if d > 9.2:
+					col = INK
+				elif d > 8.0:
+					col = tint.lightened(0.35) if y < n * 0.5 else tint.darkened(0.05)
+				img.set_pixel(x, y, col)
+			elif p.distance_to(c + Vector2(0, 1)) <= 10.3:
+				img.set_pixel(x, y, Color(0, 0, 0, 0.4))
+	var ic := icon(icon_name).get_image()
+	img.blend_rect(ic, Rect2i(0, 0, 16, 16), Vector2i(3, 2))
+	var tex := ImageTexture.create_from_image(img)
+	_badge_cache[key] = tex
+	return tex
+
+
+static func badge(icon_name: String, tint := Color(0, 0, 0, 0)) -> TextureRect:
+	var t := TextureRect.new()
+	t.texture = badge_texture(icon_name, tint)
+	t.stretch_mode = TextureRect.STRETCH_KEEP_CENTERED
+	t.custom_minimum_size = Vector2(BADGE_SIZE, BADGE_SIZE)
+	t.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	t.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return t

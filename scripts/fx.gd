@@ -139,11 +139,26 @@ void fragment() {
 }
 """
 
+## Bouton d'action : une bande de lumière traverse l'écran en diagonale et
+## fait briller au passage tout ce qui est coloré (pas le gris des boutons éteints).
+const SHINE := """
+shader_type canvas_item;
+uniform float period = 4.0;
+
+void fragment() {
+	float band = fract((FRAGCOORD.x + FRAGCOORD.y * 0.6) / 2600.0 - TIME / period);
+	float k = smoothstep(0.035, 0.0, abs(band - 0.5));
+	float mx = max(COLOR.r, max(COLOR.g, COLOR.b));
+	float mn = min(COLOR.r, min(COLOR.g, COLOR.b));
+	COLOR.rgb += vec3(1.0, 0.95, 0.8) * k * 0.45 * step(0.25, mx - mn);
+}
+"""
+
 static var _cache := {}
 
 
 static func material(code_name: String) -> ShaderMaterial:
-	var code: String = {"post": POST, "car": CAR, "reflection": REFLECTION, "depth": DEPTH, "mirror": MIRROR}[code_name]
+	var code: String = {"post": POST, "car": CAR, "reflection": REFLECTION, "depth": DEPTH, "mirror": MIRROR, "shine": SHINE}[code_name]
 	if not _cache.has(code_name):
 		var sh := Shader.new()
 		sh.code = code

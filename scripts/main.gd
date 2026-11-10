@@ -13,6 +13,7 @@ const PixelUI = preload("res://scripts/pixel_ui.gd")
 const CarRenderer = preload("res://scripts/car_renderer.gd")
 const Progression = preload("res://scripts/progression.gd")
 const Fx = preload("res://scripts/fx.gd")
+const SegBar = preload("res://scripts/seg_bar.gd")
 
 const VERSION := "0.9 · phase 0"
 const AUTOSAVE_EVERY := 10.0
@@ -37,7 +38,9 @@ var _prestige_armed := false
 var _day_check_left := 0.0
 var coins_label: Label
 var income_label: Label
-var rush_bar: ProgressBar
+var rush_bar: SegBar
+var stage_bar: SegBar
+var coin_badge: TextureRect
 var rush_label: Label
 var car_name: Label
 var car_rarity: Label
@@ -151,6 +154,12 @@ func _process(delta: float) -> void:
 		_autosave_left = AUTOSAVE_EVERY
 		_save()
 	_update_tutorial()
+	var now := Time.get_ticks_msec() * 0.001
+	if coin_badge != null:
+		# La pièce flotte doucement ; les pastilles rouges clignotent.
+		coin_badge.position.y = roundf(sin(now * 3.0))
+	for key: String in badges:
+		(badges[key] as ColorRect).color = PixelUI.RED.lerp(Color("ffb0a0"), 0.5 + 0.5 * sin(now * 6.0))
 	if spot_glow != null:
 		var ready := state.spot_cooldown <= 0.0
 		var target := (0.45 + 0.25 * sin(Time.get_ticks_msec() * 0.004)) if ready else 0.0
@@ -165,6 +174,13 @@ func _build_ui() -> void:
 	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(bg)
+	# Trame discrète en diagonale, pour que le fond ne soit pas un aplat.
+	var weave := TextureRect.new()
+	weave.texture = PixelUI.weave_texture()
+	weave.stretch_mode = TextureRect.STRETCH_TILE
+	weave.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	weave.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(weave)
 
 	var margin := MarginContainer.new()
 	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -225,6 +241,11 @@ func _build_top_bar(parent: Control) -> void:
 	var st := _chip("garage")
 	stage_label = st[1]
 	h.add_child(st[0])
+	# Progression vers l'étape suivante, en jauge dans la pastille.
+	stage_bar = PixelUI.bar(PixelUI.GOLD, 7)
+	stage_bar.custom_minimum_size = Vector2(34, 7)
+	stage_bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	(st[1] as Label).get_parent().add_child(stage_bar)
 	var col := _chip("album")
 	collection_label = col[1]
 	h.add_child(col[0])
@@ -304,9 +325,14 @@ func _build_income(parent: Control) -> void:
 	panel.add_child(v)
 	var row := _hbox(4)
 	v.add_child(row)
-	var coin := PixelUI.icon_rect("coin")
-	coin.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	row.add_child(coin)
+	# La pastille est dans un support fixe pour pouvoir flotter sans gêner la mise en page.
+	var coin_slot := Control.new()
+	coin_slot.custom_minimum_size = Vector2(PixelUI.BADGE_SIZE, PixelUI.BADGE_SIZE)
+	coin_slot.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	coin_slot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(coin_slot)
+	coin_badge = PixelUI.badge("coin", Color("c98a1a"))
+	coin_slot.add_child(coin_badge)
 	coins_label = PixelUI.label("", "big", PixelUI.GOLD)
 	coins_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(coins_label)
@@ -319,13 +345,14 @@ func _build_income(parent: Control) -> void:
 	var rush_row := _hbox(4)
 	v.add_child(rush_row)
 	var flame := PixelUI.icon_rect("flame")
+	flame.custom_minimum_size = Vector2(22, 16)
 	flame.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	rush_row.add_child(flame)
 	rush_label = PixelUI.label("", "small", PixelUI.MUTED)
 	rush_label.custom_minimum_size = Vector2(70, 0)
 	rush_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	rush_row.add_child(rush_label)
-	rush_bar = PixelUI.bar(PixelUI.ORANGE, 7)
+	rush_bar = PixelUI.bar(PixelUI.ORANGE, 9)
 	rush_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	rush_bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	rush_row.add_child(rush_bar)
@@ -357,12 +384,8 @@ func _build_cards(parent: Control) -> void:
 		parent.add_child(card)
 		var h := _hbox(5)
 		card.add_child(h)
-		var box := PanelContainer.new()
-		box.add_theme_stylebox_override("panel", PixelUI.frame("icon", 3, 3))
-		box.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		h.add_child(box)
-		var ic := PixelUI.icon_rect("part0")
-		box.add_child(ic)
+		var ic := PixelUI.badge("part0")
+		h.add_child(ic)
 		var mid := VBoxContainer.new()
 		mid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		mid.add_theme_constant_override("separation", 0)
@@ -372,7 +395,7 @@ func _build_cards(parent: Control) -> void:
 		mid.add_child(name_l)
 		var sub := PixelUI.label("", "small", PixelUI.MUTED)
 		mid.add_child(sub)
-		var prog := PixelUI.bar(PixelUI.ORANGE, 5)
+		var prog := PixelUI.bar(PixelUI.ORANGE, 6)
 		mid.add_child(prog)
 		var btn := Button.new()
 		btn.custom_minimum_size = Vector2(76, 0)
@@ -380,7 +403,7 @@ func _build_cards(parent: Control) -> void:
 		PixelUI.style_button(btn, "orange", Color.WHITE)
 		btn.pressed.connect(_on_tile_pressed.bind(i))
 		h.add_child(btn)
-		cards.append({"panel": card, "box": box, "icon": ic, "name": name_l, "sub": sub, "bar": prog, "button": btn})
+		cards.append({"panel": card, "icon": ic, "name": name_l, "sub": sub, "bar": prog, "button": btn})
 
 
 func _build_bottom(parent: Control) -> void:
@@ -395,7 +418,7 @@ func _build_bottom(parent: Control) -> void:
 	bar.add_child(tree)
 	spot_button = _nav_button("SPOT", "camera", "orange")
 	spot_button.size_flags_stretch_ratio = 1.25
-	spot_button.custom_minimum_size = Vector2(0, 50)
+	spot_button.custom_minimum_size = Vector2(0, 54)
 	# Halo qui respire derrière le bouton quand un spot est prêt.
 	spot_glow = TextureRect.new()
 	spot_glow.texture = Fx.soft_dot()
@@ -455,14 +478,18 @@ func _refresh_badges() -> void:
 
 func _nav_button(text: String, icon_name: String, kind := "button") -> Button:
 	var b := Button.new()
-	b.custom_minimum_size = Vector2(0, 44)
+	b.custom_minimum_size = Vector2(0, 46)
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	b.clip_contents = false
 	PixelUI.style_button(b, kind)
 	var v := VBoxContainer.new()
 	v.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	v.offset_bottom = -PixelUI.BUTTON_RELIEF
 	v.alignment = BoxContainer.ALIGNMENT_CENTER
-	v.add_theme_constant_override("separation", 0)
+	v.add_theme_constant_override("separation", -2)
+	# Enfoncé, le contenu descend avec la face du bouton.
+	b.button_down.connect(func() -> void: v.position.y = 2)
+	b.button_up.connect(func() -> void: v.position.y = 0)
 	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	b.add_child(v)
 	var ic := PixelUI.icon_rect(icon_name)
@@ -508,11 +535,12 @@ func _refresh_live() -> void:
 	coins_label.text = Economy.format_number(state.budget())
 	income_label.text = "+%s /s" % Economy.format_number(state.income())
 	var stage_text := String(Economy.STAGES[state.stage]["name"]).to_upper()
+	stage_bar.visible = state.has_next_stage()
 	if state.has_next_stage():
-		stage_text += " %d%%" % int(clampf(state.coins / state.stage_price(), 0.0, 1.0) * 100.0)
+		stage_bar.value = clampf(state.coins / state.stage_price(), 0.0, 1.0)
 	stage_label.text = stage_text
 	collection_label.text = "%d" % state.unique_models()
-	tokens_label.text = "illimité" if state.test_mode else "%d" % state.restore_tokens
+	tokens_label.text = "MAX" if state.test_mode else "%d" % state.restore_tokens
 	rep_label.text = "%d" % state.reputation
 	_refresh_badges()
 	if state.rush_left > 0.0:
@@ -565,8 +593,7 @@ func _refresh_cards() -> void:
 		for m in Economy.MILESTONES:
 			if m <= level:
 				prev = m
-		(c["icon"] as TextureRect).texture = PixelUI.icon("part%d" % part)
-		(c["box"] as PanelContainer).add_theme_stylebox_override("panel", PixelUI.frame("icon", 3, 3, PixelUI.RARITY[int(model["rarity"])].darkened(0.15).to_html(false)))
+		(c["icon"] as TextureRect).texture = PixelUI.badge_texture("part%d" % part)
 		c["name"].text = String(Economy.PARTS[part]["name"])
 		var hint := "  x2 au prochain !" if milestone == level + 1 else ""
 		c["sub"].text = "%s  ·  NIV %d%s" % [String(model["name"]).to_upper(), level, hint]
@@ -598,6 +625,9 @@ func _on_tile_pressed(i: int) -> void:
 	if state.buy_part(int(t[1]), int(t[2]), 1):
 		if int(t[1]) == selected_uid:
 			scene.pulse()
+		var card: Control = cards[i]["panel"]
+		card.modulate = Color(1.5, 1.4, 1.2)
+		create_tween().tween_property(card, "modulate", Color.WHITE, 0.25)
 		if state.tutorial_step == 2:
 			state.tutorial_step = 3
 		var level := int(state.get_car(int(t[1]))["levels"][int(t[2])])
@@ -787,15 +817,11 @@ func _row(parent: Control, icon_name := "", border := "") -> HBoxContainer:
 	var h := _hbox(5)
 	p.add_child(h)
 	if icon_name != "":
-		var box := PanelContainer.new()
-		box.add_theme_stylebox_override("panel", PixelUI.frame("icon", 3, 3))
-		box.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		box.add_child(PixelUI.icon_rect(icon_name))
-		h.add_child(box)
+		h.add_child(PixelUI.badge(icon_name))
 	return h
 
 
-func _texts(parent: Control, title: String, sub: String, title_color := PixelUI.TEXT) -> void:
+func _texts(parent: Control, title: String, sub: String, title_color := PixelUI.TEXT) -> VBoxContainer:
 	var v := VBoxContainer.new()
 	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	v.add_theme_constant_override("separation", 0)
@@ -805,6 +831,7 @@ func _texts(parent: Control, title: String, sub: String, title_color := PixelUI.
 	v.add_child(t)
 	if sub != "":
 		v.add_child(PixelUI.label(sub, "small", PixelUI.MUTED, true))
+	return v
 
 
 func _buy_button(text: String, enabled: bool, action: Callable, with_coin := true) -> Button:
@@ -842,7 +869,18 @@ func _show_atelier() -> void:
 			continue
 		var m := Economy.next_milestone(level)
 		var x2 := int(pow(2, Economy.milestones_passed(level)))
-		_texts(row, "%s  niv %d" % [info["name"], level], "%s · x%d%s" % [info["stat"], x2, ("  ·  x2 au niv %d" % m) if m > 0 else ""])
+		var texts := _texts(row, "%s  niv %d" % [info["name"], level], "%s · x%d%s" % [info["stat"], x2, ("  ·  x2 au niv %d" % m) if m > 0 else ""])
+		# Jauge vers le prochain palier x2.
+		var prev_m := 0
+		for ms in Economy.MILESTONES:
+			if ms <= level:
+				prev_m = ms
+		var gauge := PixelUI.bar(PixelUI.ORANGE if m > 0 else PixelUI.GOLD, 7)
+		gauge.value = float(level - prev_m) / float(maxi(1, m - prev_m)) if m > 0 else 1.0
+		var gap := Control.new()
+		gap.custom_minimum_size = Vector2(0, 4)
+		texts.add_child(gap)
+		texts.add_child(gauge)
 		if level >= Economy.MAX_LEVEL:
 			row.add_child(PixelUI.label("MAX", "main", PixelUI.GOLD))
 			continue
@@ -1079,7 +1117,8 @@ func _show_tree() -> void:
 			var reachable := pre == "" or state.has_skill(pre)
 			if owned:
 				PixelUI.style_button(node, "button", PixelUI.GOLD)
-				node.add_theme_stylebox_override("normal", PixelUI.frame("icon", 4, 3, "ffc23d"))
+				for st: String in ["normal", "hover", "pressed"]:
+					node.add_theme_stylebox_override(st, PixelUI.frame("owned", 4, 3))
 				node.text = "OK"
 			elif buyable:
 				PixelUI.style_button(node, "orange", Color.WHITE)
@@ -1087,7 +1126,7 @@ func _show_tree() -> void:
 				PixelUI.style_button(node, "button", PixelUI.MUTED if reachable else PixelUI.MUTED.darkened(0.4))
 				node.modulate = Color(1, 1, 1, 1.0 if reachable else 0.5)
 			if id == _tree_selected:
-				node.add_theme_stylebox_override("normal", PixelUI.frame("icon", 4, 3, "ffffff"))
+				node.add_theme_stylebox_override("normal", PixelUI.frame("owned" if owned else ("orange" if buyable else "button"), 4, 3, "ffffff"))
 			node.pressed.connect(func() -> void:
 				_tree_selected = id
 				_show_tree())
@@ -1109,7 +1148,7 @@ func _show_missions() -> void:
 			row.add_child(v)
 			v.add_child(PixelUI.label(String(m["text"]), "main", PixelUI.TEXT))
 			v.add_child(PixelUI.label("%d / %d  ·  %s" % [prog, int(m["goal"]), _reward_text(m["reward"])], "small", PixelUI.MUTED))
-			var bar := PixelUI.bar(PixelUI.ORANGE, 4)
+			var bar := PixelUI.bar(PixelUI.ORANGE, 6)
 			bar.value = float(prog) / float(m["goal"])
 			v.add_child(bar)
 			row.add_child(_claim_button(m["claimed"], prog >= int(m["goal"]), func() -> void: state.claim_mission(i)))

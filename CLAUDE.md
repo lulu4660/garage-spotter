@@ -28,7 +28,8 @@ Mise à neuf : chaque voiture spottée arrive grise (silhouette de sa carrosseri
 - `scripts/progression.gd` : progression longue, données et fonctions pures : réputation (prestige), arbre de compétences (4 branches × 6), collections, missions du jour, succès. Ne mets aucune règle d'économie ailleurs que dans ces deux fichiers.
 - `scripts/game_state.gd` : état de la partie, actions du joueur, sauvegarde `user://save.json`.
 - `scripts/main.gd` : interface construite en code, fenêtres, tutoriel.
-- `scripts/pixel_ui.gd` : couleurs, polices, cadres biseautés (9-slice générés), icônes pixel 16×16.
+- `scripts/pixel_ui.gd` : kit d'interface : couleurs, polices, cadres et boutons en relief (9 tranches générées ; un bouton a une tranche visible et descend de 2 px quand on l'enfonce), pastilles rondes d'icônes (`badge`), icônes pixel 16×16. Tout nouveau bouton passe par `style_button` (éclair au clic, reflet sur les boutons d'action).
+- `scripts/seg_bar.gd` : jauge à segments animée (`PixelUI.bar`).
 - `scripts/car_renderer.gd` : voitures modélisées en volume puis rendues en pixel art, vue 3/4 avant fixe, mises en cache.
 - `scripts/garage_scene.gd` : scène du garage en couches (décor pixel, ville en parallaxe, voiture, brouillard/pluie, lumières additives, post-traitement).
 - `scripts/fx.gd` : shaders « HD-2D » (bloom + étalonnage + vignettage, liseré et reflet de carrosserie, reflet au sol) et textures douces.
