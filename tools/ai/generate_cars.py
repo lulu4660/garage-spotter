@@ -296,6 +296,32 @@ def scrub_badges(sprite):
     return removed
 
 
+def recolor(sprite, target_hex, hue_band=(0.52, 0.75), min_sat=0.35):
+    """Recolore un sprite généré en peinture « bleu roi » (couleur témoin) vers la couleur de la
+    photo, en gardant les ombres et reflets : un seul sprite par modèle sert à toutes les couleurs."""
+    tr, tg, tb = [int(target_hex[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+    th, tl, ts = colorsys.rgb_to_hls(tr, tg, tb)
+    px = sprite.load()
+    paint = []
+    for y in range(sprite.height):
+        for x in range(sprite.width):
+            r, g, b, a = px[x, y]
+            if a == 0:
+                continue
+            h, l, s = colorsys.rgb_to_hls(r / 255, g / 255, b / 255)
+            if hue_band[0] < h < hue_band[1] and s > min_sat and l > 0.08:
+                paint.append((x, y, l))
+    if not paint:
+        return sprite.copy()
+    mean = sum(p[2] for p in paint) / len(paint)
+    out = sprite.copy()
+    po = out.load()
+    for x, y, l in paint:
+        r, g, b = colorsys.hls_to_rgb(th, min(0.95, max(0.03, tl + (l - mean))), ts)
+        po[x, y] = (int(r * 255), int(g * 255), int(b * 255), 255)
+    return out
+
+
 def normal_map(sprite):
     """Reliefs approchés depuis la luminosité (clair = en avant), format Godot (y vers le haut)."""
     w, h = sprite.size

@@ -14,7 +14,7 @@ La copie de la photo gardée pour l'album, elle, est floutée (plaques) : la pho
 qu'au traitement et n'est jamais stockée.
 
 Usage :
-  CF_ACCOUNT_ID=... python3 tools/ai/spot_photo.py photo.jpg sortie/ [--identity "Honda Civic 11th gen hatchback"]
+  CF_ACCOUNT_ID=... [GEMINI_API_KEY=...] python3 tools/ai/spot_photo.py photo.jpg sortie/ [--identity "Honda Civic 11th gen hatchback"]
 Les photos et résultats restent hors du dépôt. En production, cette chaîne tournera dans un
 Worker Cloudflare (clé côté serveur), jamais dans l'appli.
 """
@@ -31,7 +31,10 @@ from PIL import Image, ImageFilter
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import generate_cars as gc  # noqa: E402
 
-VISION = "@cf/meta/llama-4-scout-17b-16e-instruct"
+VISION = "@cf/meta/llama-4-scout-17b-16e-instruct"  # gratuit, mais se trompe de génération
+# Reconnaissance retenue : Gemini 3.1 Flash-Lite (≈ 0,0006 $ la photo), clé côté serveur.
+GEMINI = "gemini-3.1-flash-lite"
+GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
 DETECT = "@cf/facebook/detr-resnet-50"
 BODY_TYPES = ["citadine", "compacte", "berline", "break", "4x4", "suv", "monospace", "combi", "fourgon",
               "coupe", "fastback", "sportback", "cabriolet", "roadster", "pickup", "supercar"]
@@ -83,6 +86,9 @@ def detect_car(photo):
 
 
 def recognize(crop):
+    """Reconnaissance par Gemini si une clé est disponible (GEMINI_API_KEY), sinon Workers AI."""
+    if os.environ.get("GEMINI_API_KEY"):
+        return recognize_gemini(crop)
     img = crop.copy()
     img.thumbnail((768, 768))
     buf = io.BytesIO()
@@ -95,6 +101,21 @@ def recognize(crop):
     if isinstance(out, str):
         out = json.loads(out.strip().strip("`").removeprefix("json"))
     return out
+
+
+def recognize_gemini(crop):
+    img = crop.copy()
+    img.thumbnail((768, 768))
+    buf = io.BytesIO()
+    img.save(buf, "JPEG", quality=90)
+    uri = "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
+    body = {"model": GEMINI, "temperature": 0.1, "response_format": {"type": "json_object"},
+            "messages": [{"role": "user", "content": [{"type": "text", "text": RECOGNIZE}, {"type": "image_url", "image_url": {"url": uri}}]}]}
+    req = urllib.request.Request(GEMINI_URL, data=json.dumps(body).encode(), method="POST",
+                                 headers={"Authorization": "Bearer " + os.environ["GEMINI_API_KEY"], "Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=120) as r:
+        out = json.loads(json.load(r)["choices"][0]["message"]["content"].strip().strip("`").removeprefix("json"))
+    return out[0] if isinstance(out, list) else out
 
 
 def blur_plates(crop, boxes):

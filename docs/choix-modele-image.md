@@ -111,14 +111,14 @@ n'est plus envoyée à un générateur d'images.
 
 | Poste | Combien | Coût |
 |---|---|---|
-| Reconnaissance par photo, Gemini 2.5 Flash-Lite (≈ 0,10 $ / M jetons en entrée, 0,40 $ en sortie ; une image ≈ 260 jetons) | ≈ 700 jetons entrée + 200 sortie | **≈ 0,00015 $** (offre gratuite au début) |
-| Reconnaissance, Gemini 3.1 Flash-Lite (0,25 $ / 1,50 $) | idem | ≈ 0,0005 $ |
+| Reconnaissance, Gemini 3.1 Flash-Lite (0,25 $ / 1,50 $ par M jetons), **mesuré** | 1 402 jetons entrée + ≈ 180 sortie | **≈ 0,0006 $** (gratuit au début) |
+| Reconnaissance, Gemini 3.5 Flash-Lite (0,30 $ / 2,50 $), mesuré | idem | ≈ 0,0009 $ |
 | Génération d'un nouveau modèle, modèle haut de gamme (≈ 0,04 $) | une fois par modèle | 2 000 modèles ≈ **80 $ en tout, une seule fois** |
 | Génération d'un nouveau modèle, FLUX.2 [klein] 4B | une fois par modèle | ≈ 0 (gratuit) |
 | Mise à neuf d'un modèle déjà en cache | recoloration + calques | **0** |
 
-Un joueur très actif (10 photos par jour) coûte donc ≈ 300 × 0,00015 ≈ **0,05 $ par mois**, au lieu
-de ≈ 6 $. On peut aussi **pré-générer avant la sortie** les ≈ 300 modèles les plus vendus en Europe :
+Un joueur très actif (10 photos par jour) coûte donc ≈ 300 × 0,0006 ≈ **0,18 $ par mois**, au lieu
+de ≈ 6 $ (et ≈ 0,09 $ pour 5 mises à neuf par jour). On peut aussi **pré-générer avant la sortie** les ≈ 300 modèles les plus vendus en Europe :
 la plupart des spots tombent alors dans le cache dès le premier jour.
 
 Prix relevés sur des comparateurs (août 2026) et à confirmer sur les pages officielles avant de
@@ -134,3 +134,32 @@ s'engager : Gemini 3.1 Flash-Lite est le seul prix confirmé par une annonce off
 Sources : [tarifs Gemini API](https://ai.google.dev/pricing), [comparatif des prix d'image (invideo,
 août 2026)](https://invideo.io/blog/ai-image-model-pricing/), [Qwen Image Edit Plus (pricepertoken)](https://pricepertoken.com/image/model/qwen-qwen-image-edit-plus),
 [Gemini 2.5 Flash-Lite (anotherwrapper)](https://anotherwrapper.com/llm-pricing/gemini-2.5-flash-lite).
+
+## Résultats des deux tests (10 novembre 2026)
+
+**1. Reconnaissance (photo recadrée de la Civic rouge, vue de dos)**
+
+| Modèle | Réponse | Juste ? | Temps | Coût |
+|---|---|---|---|---|
+| Llama 4 Scout (Workers AI, gratuit) | Honda Civic 10e génération break | génération fausse | — | 0 |
+| Mistral Small 3.1 (Workers AI) | Honda Jazz | non | — | 0 |
+| **Gemini 3.1 Flash-Lite** | Honda Civic **11e génération**, e:HEV, compacte, rouge, attelage, vue arrière, confiance 0,98 | **oui** | 3,2 s | ≈ 0,0006 $ |
+| Gemini 3.5 Flash-Lite | Honda Civic 11e (FE/FL), e:HEV, attelage | oui | 3,4 s | ≈ 0,0009 $ (souvent « surchargé », 503) |
+| Gemini 2.5 Flash-Lite / 2.5 Flash | fermés aux nouveaux comptes | — | — | — |
+
+Retenu : **Gemini 3.1 Flash-Lite** (`spot_photo.py` l'utilise si `GEMINI_API_KEY` est défini). Attention RGPD :
+avec l'offre gratuite, Google peut utiliser les données envoyées ; en production (photos des joueurs), passer
+à l'offre payante. Un seul essai sur une seule photo : à confirmer sur une vingtaine de photos variées.
+
+**2. Génération à partir du nom seul (FLUX.2 [klein] 4B, gratuit), peinture bleu roi puis recoloration**
+6 modèles (Civic 11, Clio V, Golf 8, 208 II, Model 3, Mini F56), 2 graines chacun.
+- Style, angle 3/4 avant et fond : bons. **Recoloration** (`generate_cars.recolor`) : très bonne en rouge et
+  en blanc, ombres et reflets gardés ; le bleu des vitres est épargné (saturation minimale 0,35).
+- **Fidélité au modèle : insuffisante.** klein dessine une citadine générique ; seule la Mini est
+  reconnaissable. Il dessine aussi parfois le vrai logo (losange Renault, lion Peugeot) malgré la consigne.
+- Le filtre de Cloudflare bloque souvent le nom de marque (« output flagged ») : jusqu'à 8 graines.
+- Gemini Flash Image (génération) : pas inclus dans l'offre gratuite de l'API (quota 0).
+
+**Conclusion** : reconnaissance avec Gemini 3.1 Flash-Lite ; génération avec un modèle haut de gamme
+(Gemini Flash Image, ≈ 0,04 $) **une seule fois par modèle**, relu à la main (logos), puis recoloré pour
+tous les joueurs. klein 4B reste le secours gratuit pour les modèles rares.
