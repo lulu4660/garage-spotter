@@ -55,3 +55,33 @@ Le test demande un compte Cloudflare et une clé d'API Workers AI, gardée côt�
 - Tarifs Workers AI : https://developers.cloudflare.com/workers-ai/platform/pricing/
 - FLUX.2 [klein] 4B sur Workers AI : https://developers.cloudflare.com/changelog/post/2026-01-15-flux-2-klein-4b-workers-ai/
 - Licence de FLUX.2 [klein] : https://help.bfl.ai/articles/8642316687-flux-2-klein-fast-generation-guide
+
+## Essai de la chaîne complète sur une vraie photo (10 novembre 2026)
+
+Script : `tools/ai/spot_photo.py` (détection → recadrage → reconnaissance → floutage des plaques →
+génération → pixel art). Photo de test : une Honda Civic 11e génération (hayon, 2022+), rouge, vue
+de l'arrière, avec attelage.
+
+| Étape | Résultat |
+|---|---|
+| Détection (DETR, Workers AI) | Voiture trouvée (99,9 %). Attention : les cadres sont exprimés dans une image étirée à 1333 × 800 ; le script envoie un carré et reconvertit. |
+| Reconnaissance, photo entière (Llama 4 Scout) | **Faux** : « Tesla Model 3 », confiance 0,95. |
+| Reconnaissance, voiture recadrée (Llama 4 Scout) | Marque et modèle justes (Honda Civic), **génération et carrosserie fausses** (10e génération break), attelage repéré. |
+| Reconnaissance, voiture recadrée (Mistral Small 3.1) | **Faux** : « Honda Jazz ». |
+| Moondream 3.1 | Réponses vides par l'API, inutilisable pour l'instant. |
+| Floutage de la plaque | Plaque illisible avant envoi. |
+| Génération FLUX.2 [klein] 4B | Bon style ; voiture plausible mais **pas le modèle exact**, avant inventé (photo de dos), **logo de marque dessiné** malgré la consigne. |
+| Génération FLUX.2 [klein] 9B | Bloquée 3 fois sur 3 par le filtre de Cloudflare avec la photo. |
+
+**Conclusions**
+- La chaîne fonctionne de bout en bout et coûte presque rien, mais les modèles gratuits de Workers AI ne
+  suffisent pas pour reconnaître **la génération exacte** ni pour dessiner **le modèle exact**.
+- Reconnaissance : passer à un modèle de vision plus fort (Gemini Flash, Claude Haiku/Sonnet) — de l'ordre de
+  0,001 à 0,005 $ par photo — ou demander au joueur de confirmer le modèle proposé (choix parmi 3).
+- Génération : tester un modèle qui connaît mieux les voitures et suit mieux « sans logo » (Nano Banana /
+  Gemini Flash Image, ≈ 0,04 $ l'image ; FLUX.2 [pro] via l'API de Black Forest Labs) ; garder klein 4B pour
+  le style si besoin, en deux passes.
+- Photo de dos : l'avant est forcément inventé. Option de jeu : demander une photo de face ou de 3/4, ou
+  générer la vue dans l'angle de la photo.
+- Le filtre de Cloudflare bloque souvent à tort (« output flagged »), surtout avec une vraie photo : prévoir
+  plusieurs essais et un plan B chez un autre fournisseur.
