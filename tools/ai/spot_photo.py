@@ -4,10 +4,14 @@
   1. Détection de la voiture (DETR, Workers AI) et recadrage.
   2. Reconnaissance sur le recadrage (modèle de vision, Workers AI) : marque, modèle,
      génération, carrosserie, couleur, modifications visibles, plaque(s), score « vraie voiture ».
-  3. Floutage des plaques avant tout envoi à la génération (vie privée, GDD).
-  4. Génération du sprite (FLUX.2 [klein] 4B) : image 0 = la photo recadrée et floutée,
-     image 1 = la planche de style, consigne = le modèle reconnu + ses modifications.
+  3. Génération du sprite (FLUX.2 [klein] 4B) : image 0 = la photo recadrée, intacte (logo et
+     plaque visibles, pour reconnaître et redessiner au mieux), image 1 = la planche de style,
+     consigne = le modèle reconnu + ses modifications, sans vrai logo ni plaque.
+  4. Retouche (FLUX.2 [klein] 4B en mode édition) : on renvoie l'image générée et on fait effacer
+     tout logo, badge, texte ou plaque restant, sans rien changer d'autre.
   5. Nettoyage en pixel art (mêmes étapes que generate_cars.py).
+La copie de la photo gardée pour l'album, elle, est floutée (plaques) : la photo intacte ne sert
+qu'au traitement et n'est jamais stockée.
 
 Usage :
   CF_ACCOUNT_ID=... python3 tools/ai/spot_photo.py photo.jpg sortie/ [--identity "Honda Civic 11th gen hatchback"]
@@ -114,12 +118,34 @@ def generation_prompt(car, identity=None):
     return (
         "Detailed modern pixel art sprite of this exact car: a %s %s (%s). Image 0 is a real street photo of this very car "
         "(seen from the %s): reproduce its exact model, generation, body shape, paint colour %s and wheels. %s"
+        "Do NOT draw the real brand logo: replace every logo or emblem with a small plain blank badge, and draw no license plate. "
         "Draw the whole car in a three-quarter FRONT view, front of the car on the LEFT side of the picture, even if the photo shows another side. "
         "Image 1 is a sheet of example sprites: use only its drawing style, never copy one of its cars or colours: high-detail pixel art like a premium "
         "mobile game, crisp dark outline, glossy paint with sharp highlights, tinted windows, detailed alloy wheels and headlights, plain white background, "
         "no ground shadow, no scenery. No logos, no badges, no emblems, no text, no license plate."
         % (car.get("color_name", ""), " ".join(name.split()), car.get("body_type", ""), car.get("view", "photo"), car.get("color_hex", ""), mods_txt)
     )
+
+
+CLEANUP = ("Edit this pixel art car sprite: remove every brand logo, emblem, badge, lettering and license plate "
+           "(paint those areas with the surrounding grille or body colour, a plate holder becomes plain body colour). "
+           "Keep everything else exactly identical: same car, same colours, same pixel art style, same angle, same white background.")
+
+
+def cleanup(raw_path, out_path):
+    """Deuxième passe : efface logos, textes et plaques de l'image générée."""
+    small = Image.open(raw_path).convert("RGB")
+    small.thumbnail((500, 500))
+    tmp = out_path + ".in.png"
+    small.save(tmp)
+    for attempt in range(5):
+        try:
+            data = gc.call_api(CLEANUP, {"input_image_0": tmp}, 700 + attempt * 13)
+            open(out_path, "wb").write(data)
+            return True
+        except RuntimeError as e:
+            print("  retouche, nouvel essai :", str(e)[:80])
+    return False
 
 
 def main():
@@ -137,9 +163,9 @@ def main():
     if float(car.get("is_real_car", 1)) < 0.5:
         print("Refusé : écran, affiche ou jouet.")
         return
-    safe = blur_plates(crop, car.get("plate_boxes"))
-    safe.save(os.path.join(out_dir, "photo_safe.jpg"), quality=92)
-    ref = safe.copy()
+    # Copie pour l'album : plaques floutées. La photo intacte part seulement au traitement.
+    blur_plates(crop, car.get("plate_boxes")).save(os.path.join(out_dir, "photo_album.jpg"), quality=92)
+    ref = crop.copy()
     ref.thumbnail((500, 500))
     ref_path = os.path.join(out_dir, "photo_ref.png")
     ref.save(ref_path)
@@ -155,8 +181,11 @@ def main():
         return
     raw = os.path.join(out_dir, "raw.jpg")
     open(raw, "wb").write(data)
-    clean = gc.remove_background(Image.open(raw))
+    edited = os.path.join(out_dir, "raw_clean.jpg")
+    source = edited if cleanup(raw, edited) else raw
+    clean = gc.remove_background(Image.open(source))
     big = gc.to_pixel_art(clean, gc.BIG_W)
+    print("Logos / plaques effacés :", gc.scrub_badges(big))
     big.save(os.path.join(out_dir, "sprite.png"))
     gc.normal_map(big).save(os.path.join(out_dir, "sprite_n.png"))
     json.dump({"recognition": car, "identity": identity, "prompt": prompt, "meta": gc.meta(big)}, open(os.path.join(out_dir, "result.json"), "w"), ensure_ascii=False, indent=1)

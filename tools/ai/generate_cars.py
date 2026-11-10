@@ -145,7 +145,7 @@ def remove_background(im):
     corners = [px[x, y] for x in (2, w - 3) for y in (2, h - 3)]
     bg = tuple(sorted(c[i] for c in corners)[len(corners) // 2] for i in range(3))
     bh, bl, bs = colorsys.rgb_to_hls(*(v / 255 for v in bg))
-    green = bs > 0.4
+    green = bs > 0.4 and bl < 0.85  # un quasi-blanc a une « saturation » trompeuse
 
     def is_bg(c):
         if sum((c[i] - bg[i]) ** 2 for i in range(3)) < (70 if green else 45) ** 2:
@@ -231,6 +231,71 @@ def to_pixel_art(im, width):
     return out
 
 
+def scrub_badges(sprite):
+    """Efface logos et plaques dans le sprite final (vue 3/4 avant, avant à gauche).
+    On cherche sur la face avant (moitié gauche, bas de l'image) des amas de pixels clairs
+    et peu saturés (chrome, blanc) :
+      - logo  : petit amas posé sur une zone sombre (la calandre) ;
+      - plaque : rectangle clair, plein et allongé, dans le bas du pare-chocs.
+    Chaque amas est repeint avec la couleur médiane qui l'entoure. Renvoie le nombre d'amas effacés."""
+    w, h = sprite.size
+    px = sprite.load()
+
+    def lum(c):
+        return (0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]) / 255
+
+    def badge_like(c):
+        if c[3] == 0:
+            return False
+        _, l, s_ = colorsys.rgb_to_hls(c[0] / 255, c[1] / 255, c[2] / 255)
+        return l > 0.55 and s_ < 0.30
+
+    seen = set()
+    removed = 0
+    for y in range(int(h * 0.40), int(h * 0.97)):
+        for x in range(0, int(w * 0.52)):
+            if (x, y) in seen or not badge_like(px[x, y]):
+                continue
+            cluster, stack = [], [(x, y)]
+            seen.add((x, y))
+            while stack:
+                cx, cy = stack.pop()
+                cluster.append((cx, cy))
+                for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    nx, ny = cx + dx, cy + dy
+                    if 0 <= nx < w and 0 <= ny < h and (nx, ny) not in seen and badge_like(px[nx, ny]):
+                        seen.add((nx, ny))
+                        stack.append((nx, ny))
+            cxs = [p[0] for p in cluster]
+            cys = [p[1] for p in cluster]
+            bw, bh = max(cxs) - min(cxs) + 1, max(cys) - min(cys) + 1
+            my = sum(cys) / len(cluster)
+            cs = set(cluster)
+            ring = []
+            for (cx, cy) in cluster:
+                for dx in range(-2, 3):
+                    for dy in range(-2, 3):
+                        q = (cx + dx, cy + dy)
+                        if q not in cs and 0 <= q[0] < w and 0 <= q[1] < h and px[q][3] and not badge_like(px[q]):
+                            ring.append(px[q])
+            if len(ring) < 4:
+                continue
+            ring.sort(key=lum)
+            fill = ring[len(ring) // 2]
+            on_dark = lum(fill) < 0.35
+            fill_ratio = len(cluster) / float(bw * bh)
+            # Logo : petit amas sur la calandre sombre (règle stricte, pour ne pas abîmer phares et jantes).
+            logo = len(cluster) <= 14 and bw <= 7 and bh <= 6 and on_dark and my < h * 0.75
+            # Plaque : rectangle clair allongé dans le bas ; ses caractères sombres laissent des trous.
+            plate = len(cluster) >= 10 and bw >= 1.3 * bh and fill_ratio > 0.5 and my > h * 0.6
+            if not (logo or plate):
+                continue
+            for q in cluster:
+                px[q] = fill
+            removed += 1
+    return removed
+
+
 def normal_map(sprite):
     """Reliefs approchés depuis la luminosité (clair = en avant), format Godot (y vers le haut)."""
     w, h = sprite.size
@@ -283,7 +348,9 @@ def process(car_id):
     raw = Image.open(os.path.join(OUT_RAW, car_id + ".jpg"))
     clean = remove_background(raw)
     big = to_pixel_art(clean, BIG_W)
+    scrub_badges(big)
     small = to_pixel_art(clean, SMALL_W)
+    scrub_badges(small)
     big.save(os.path.join(OUT, car_id + ".png"))
     small.save(os.path.join(OUT, car_id + "_s.png"))
     normal_map(big).save(os.path.join(OUT, car_id + "_n.png"))
