@@ -13,7 +13,7 @@ Le document de game design (GDD) fait foi : https://claude.ai/artifact/WgkvZZaTt
 - L'appli affiche, le serveur décide : tout calcul d'argent faisant foi est côté serveur.
 - Revenus idle calculés depuis l'heure de la dernière récolte, jamais en continu.
 - Aucune clé d'API dans l'appli.
-- Pas de 3D affichée, pas de rotation : sprites fixes, tous dans le même angle que les silhouettes (3/4 avant, caméra basse à hauteur de phare, avant à gauche ; pas de vue de dessus ni d'isométrie), recolorés.
+- Pas de 3D affichée, pas de rotation : sprites fixes, tous dans le même angle que les silhouettes (3/4 avant, caméra basse à hauteur de phare, avant à gauche ; pas de vue de dessus ni d'isométrie), recolorés. Seule exception : la map de la ville est en isométrique, avec ses petites voitures de clients dessinées en code.
 - Le nom réel d'une voiture n'est jamais affiché : on passe par la base de noms modifiés.
 - Économie : coût ×1,10 par niveau, revenu linéaire, ×2 aux paliers 25/50/100/150/200 ; les échelles s'additionnent, jamais ne se multiplient. Tout changement d'équilibrage passe par une simulation (agent economy-balancer).
 - DA : pixel art sombre, rue de nuit, noir charbon + orange/rouge/or, pas de bleu dominant.
@@ -27,7 +27,9 @@ Mise à neuf : chaque voiture spottée arrive grise (silhouette de sa carrosseri
 - `scripts/economy.gd` : formules de base (pièces, étapes, places, hors ligne, spot), fonctions pures (à porter dans les Edge Functions en phase 1).
 - `scripts/progression.gd` : progression longue, données et fonctions pures : réputation (prestige), arbre de compétences (4 branches × 6), collections, missions du jour, succès. Ne mets aucune règle d'économie ailleurs que dans ces deux fichiers.
 - `scripts/game_state.gd` : état de la partie, actions du joueur, sauvegarde `user://save.json`.
-- `scripts/main.gd` : interface construite en code, fenêtres, tutoriel.
+- `scripts/main.gd` : interface construite en code, fenêtres, tutoriel. L'écran principal montre la ville ; le bouton SERVIR fait sortir des clients (gain = toucher, `state.tap()`), de plus en plus si l'on enchaîne ; toucher son bâtiment ouvre la scène du garage (`_show_showcase`).
+- `scripts/city_map.gd` : la ville (`assets/map/`) : heure réelle (nuit 20 h 30 → 5 h 30, aube et crépuscule dorés), météo tirée au hasard par demi-heure (clair, nuages, pluie, brouillard), lumières de nuit qui s'allument par petits blocs, halos des lampadaires, voitures des clients jusqu'à l'autoroute, étiquettes des bâtiments (Box, Atelier, Showroom, Hangar), caméra qu'on fait glisser et qui se recentre sur l'étape. Les ombres des bâtiments sont celles peintes dans l'image ; les nuages, la pluie et le brouillard sont dynamiques.
+- `tools/map/make_map.py` : prépare la map à partir de `tools/map/src/day.jpg` (affichée) et `night.jpg` (sert seulement à repérer les lumières) : `day.png`, `light.png` (nuit = jour × ambiance + light), `lamps.json`, `front.png` (bâtiments redessinés devant les voitures).
 - `scripts/pixel_ui.gd` : kit d'interface « course de rue » : couleurs, polices, cadres en aplats (`frame` : `StyleBoxFlat` sans lissage, boutons et bandeaux inclinés, coins coupés, tranche sombre sous les boutons), texte sombre sur les aplats vifs (`ink_label`), pastilles rondes d'icônes (`badge`), icônes pixel 16×16. Tout nouveau bouton passe par `style_button` (éclair au clic, reflet sur les boutons d'action).
 - `scripts/seg_bar.gd` : jauge à segments animée (`PixelUI.bar`).
 - `scripts/car_renderer.gd` : voitures modélisées en volume puis rendues en pixel art, vue 3/4 avant fixe, mises en cache.
@@ -44,7 +46,7 @@ Mise à neuf : chaque voiture spottée arrive grise (silhouette de sa carrosseri
 - Pour un objet pixel : positions et tailles en pixels entiers, filtre « nearest », jamais d'agrandissement non entier. Les effets doux passent par `fx.gd` (shaders, `soft_dot`, couche additive).
 - Polices : Garage Jersey en 19 (texte) ou 38 (gros chiffres), Micro 5 en 11 (petits textes). Aucune autre taille.
 - Couleurs depuis `pixel_ui.gd` ; contour sombre d'1 px sur les sprites ; lumière venant du haut.
-- Images générées par IA : seulement les sprites de voitures (`assets/cars/`), produits par `tools/ai/generate_cars.py` (FLUX.2 [klein] 4B sur Cloudflare Workers AI, licence Apache 2.0). Aucune marque réelle (logo, badge, texte, plaque) : relire chaque nouveau sprite.
+- Images générées par IA : les sprites de voitures (`assets/cars/`, produits par `tools/ai/generate_cars.py`, FLUX.2 [klein] 4B sur Cloudflare Workers AI, licence Apache 2.0) et la map de la ville (`tools/map/src/`, fournie par l'auteur). Aucune marque réelle (logo, badge, texte, plaque) : relire chaque nouvelle image.
 - `tools/car_sheet.gd` produit une planche de toutes les carrosseries pour relire le rendu des voitures.
 
 ## Sprites de voitures générés (mise à neuf)
@@ -61,7 +63,7 @@ Mise à neuf : chaque voiture spottée arrive grise (silhouette de sa carrosseri
 
 ## Vérifier un changement
 - `godot --headless --path . -s tests/run_tests.gd` et `godot --headless --path . -s tests/test_playthrough.gd -- --fresh` doivent passer.
-- Pour un changement visible : `tools/screenshots.sh` (via `xvfb-run` sous Linux), puis relire les captures. Options de capture : `--demo`, `--fresh`, `--stage=0..3`, `--popup=atelier|garage|album|spot|reveal|offline|menu|tree|staff|collections|missions|succes`.
+- Pour un changement visible : `tools/screenshots.sh` (via `xvfb-run` sous Linux), puis relire les captures. Options de capture : `--demo`, `--fresh`, `--stage=0..3`, `--hour=0..24`, `--weather=clear|clouds|rain|fog`, `--popup=showcase|serve|atelier|garage|album|spot|reveal|offline|menu|tree|staff|collections|missions|succes` (`serve` : dix appuis sur SERVIR avant la capture).
 
 ## Agents (.claude/agents/)
 godot-dev, economy-balancer, supabase-backend, ai-pipeline, art-director (relecture), playtester-qa (tests), store-compliance (conformité).

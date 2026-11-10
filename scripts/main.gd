@@ -7,6 +7,7 @@ const Economy = preload("res://scripts/economy.gd")
 const Catalog = preload("res://scripts/catalog.gd")
 const GameState = preload("res://scripts/game_state.gd")
 const GarageScene = preload("res://scripts/garage_scene.gd")
+const CityMap = preload("res://scripts/city_map.gd")
 const RevealView = preload("res://scripts/reveal_view.gd")
 const TutorialOverlay = preload("res://scripts/tutorial_overlay.gd")
 const PixelUI = preload("res://scripts/pixel_ui.gd")
@@ -17,7 +18,7 @@ const SegBar = preload("res://scripts/seg_bar.gd")
 
 const VERSION := "0.9 · phase 0"
 const AUTOSAVE_EVERY := 10.0
-const CARD_COUNT := 3
+const CARD_COUNT := 2
 
 var state: GameState
 var persist := true
@@ -51,6 +52,14 @@ var car_rarity: Label
 var car_rarity_chip: PanelContainer
 var car_slot_label: Label
 var scene: GarageScene
+var city: CityMap
+var deliver_button: Button
+var showcase: Control
+var showcase_title: Label
+## Appuis rapprochés sur le bouton : de plus en plus de voitures sortent.
+var _combo := 0.0
+var _shot_hour := -1.0
+var _shot_weather := ""
 var cards: Array[Dictionary] = []
 var spot_button: Button
 var spot_label: Label
@@ -87,6 +96,10 @@ func _ready() -> void:
 			fresh = true
 		elif a.begins_with("--stage="):
 			shot_stage = int(a.get_slice("=", 1))
+		elif a.begins_with("--hour="):
+			_shot_hour = float(a.get_slice("=", 1))
+		elif a.begins_with("--weather="):
+			_shot_weather = a.get_slice("=", 1)
 	if shot_path != "" or demo or fresh:
 		persist = false
 	_instant = shot_path != ""
@@ -161,6 +174,7 @@ func _process(delta: float) -> void:
 		_autosave_left = AUTOSAVE_EVERY
 		_save()
 	_update_tutorial()
+	_combo = maxf(0.0, _combo - delta * 3.0)
 	var now := Time.get_ticks_msec() * 0.001
 	if coin_badge != null:
 		# La pièce flotte doucement ; les pastilles rouges clignotent.
@@ -208,6 +222,7 @@ func _build_ui() -> void:
 			tw.tween_interval(0.08 + i * 0.07)
 			tw.tween_property(block, "modulate:a", 1.0, 0.18)
 
+	_build_showcase()
 	popup_layer = Control.new()
 	popup_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	popup_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -278,10 +293,78 @@ func _build_top_bar(parent: Control) -> void:
 
 
 func _build_hero(parent: Control) -> void:
+	# La ville : on y voit les bâtiments du joueur et ses clients qui partent.
+	var frame := PanelContainer.new()
+	frame.add_theme_stylebox_override("panel", PixelUI.frame("inset", 1, 1))
+	frame.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	parent.add_child(frame)
+	city = CityMap.new()
+	city.custom_minimum_size = Vector2(0, 150)
+	city.debug_hour = _shot_hour
+	city.debug_weather = _shot_weather
+	city.building_tapped.connect(func(_i: int) -> void: _show_showcase())
+	frame.add_child(city)
+	# Le bouton des clients, en bas de la ville.
+	var bottom := CenterContainer.new()
+	bottom.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bottom.size_flags_vertical = Control.SIZE_SHRINK_END
+	frame.add_child(bottom)
+	var pad := MarginContainer.new()
+	pad.add_theme_constant_override("margin_bottom", 6)
+	pad.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bottom.add_child(pad)
+	deliver_button = Button.new()
+	deliver_button.text = "SERVIR"
+	deliver_button.icon = PixelUI.icon("flame")
+	deliver_button.custom_minimum_size = Vector2(104, 26)
+	PixelUI.style_button(deliver_button, "orange")
+	deliver_button.pressed.connect(_on_deliver)
+	pad.add_child(deliver_button)
+
+
+## Fenêtre du bâtiment (on touche le bâtiment sur la map) : la scène du garage
+## avec la voiture exposée sur son plateau.
+func _build_showcase() -> void:
+	showcase = Control.new()
+	showcase.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	showcase.visible = false
+	add_child(showcase)
+	var dim := ColorRect.new()
+	dim.color = Color(0.02, 0.015, 0.03, 0.84)
+	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	dim.gui_input.connect(func(e: InputEvent) -> void:
+		if e is InputEventMouseButton and e.pressed:
+			showcase.hide())
+	showcase.add_child(dim)
+	var panel := PanelContainer.new()
+	panel.add_theme_stylebox_override("panel", PixelUI.frame("window", 4, 4))
+	panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	panel.offset_left = 4
+	panel.offset_right = -4
+	panel.offset_top = 40
+	panel.offset_bottom = -150
+	showcase.add_child(panel)
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 4)
+	panel.add_child(vb)
+	var band := PanelContainer.new()
+	band.add_theme_stylebox_override("panel", PixelUI.frame("title", 6, 2))
+	vb.add_child(band)
+	var header := _hbox(4)
+	band.add_child(header)
+	showcase_title = PixelUI.ink_label("")
+	showcase_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	header.add_child(showcase_title)
+	var close := Button.new()
+	close.text = "X"
+	close.custom_minimum_size = Vector2(24, 22)
+	PixelUI.style_button(close)
+	close.pressed.connect(showcase.hide)
+	header.add_child(close)
 	var frame := PanelContainer.new()
 	frame.add_theme_stylebox_override("panel", PixelUI.frame("inset", 2, 2))
 	frame.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	parent.add_child(frame)
+	vb.add_child(frame)
 	scene = GarageScene.new()
 	scene.custom_minimum_size = Vector2(0, 150)
 	scene.tapped.connect(_on_car_tapped)
@@ -325,6 +408,14 @@ func _build_hero(parent: Control) -> void:
 	PixelUI.style_button(next)
 	next.pressed.connect(_cycle_car.bind(1))
 	nav.add_child(next)
+
+
+func _show_showcase() -> void:
+	_close_popup()
+	showcase_title.text = String(Economy.STAGES[state.stage]["name"]).to_upper() + " · TES VOITURES"
+	showcase.show()
+	showcase.modulate.a = 0.0
+	create_tween().tween_property(showcase, "modulate:a", 1.0, 0.12)
 
 
 func _build_income(parent: Control) -> void:
@@ -524,6 +615,13 @@ func _on_state_changed() -> void:
 
 
 func _refresh_car() -> void:
+	if city.stage != state.stage:
+		city.set_stage(state.stage)
+	var colors: Array[Color] = []
+	for uid in state.exhibited:
+		colors.append(Color(String(state.get_car(uid)["color"])))
+	if not colors.is_empty():
+		city.car_colors = colors
 	var car := state.get_car(selected_uid)
 	if car.is_empty():
 		scene.stage = state.stage
@@ -629,6 +727,15 @@ func _cycle_car(step: int) -> void:
 
 
 # --- Actions du joueur --------------------------------------------------
+
+## Le bouton des clients : chaque appui rapporte comme un toucher de voiture, et
+## fait sortir des voitures du bâtiment, de plus en plus si l'on enchaîne.
+func _on_deliver() -> void:
+	var gain := state.tap()
+	_combo = minf(_combo + 1.0, 24.0)
+	city.spawn(1 + state.stage + int(_combo / 4.0))
+	_float_text("+%s" % Economy.format_number(gain), deliver_button.global_position + Vector2(deliver_button.size.x * 0.5, 0))
+
 
 func _on_car_tapped(local_pos: Vector2) -> void:
 	var gain := state.tap()
@@ -1436,7 +1543,7 @@ func _update_tutorial() -> void:
 		return
 	match step:
 		1:
-			_set_tutorial(scene, "Touche ta voiture pour gagner tes premières pièces.", false)
+			_set_tutorial(deliver_button, "Appuie sur SERVIR : chaque client qui repart avec sa voiture te rapporte des pièces.", false)
 			if not _tile_targets.is_empty() and state.can_afford(float(_tile_targets[0][0])):
 				state.tutorial_step = 2
 		2:
@@ -1462,6 +1569,13 @@ func _on_tutorial_ok() -> void:
 
 func _take_screenshot(path: String, popup: String) -> void:
 	match popup:
+		"showcase":
+			_show_showcase()
+		"serve":
+			for i in 10:
+				_on_deliver()
+				await get_tree().create_timer(0.12).timeout
+			await get_tree().create_timer(1.6).timeout
 		"atelier":
 			_show_atelier()
 		"garage":
